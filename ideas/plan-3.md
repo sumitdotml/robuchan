@@ -1,0 +1,542 @@
+# Arena dei Poveri - Plan 3: Finetuning as the GPU-Poor Strategy
+
+## Context
+
+A **finetuning-focused** project for the Mistral AI Worldwide Hackathon Tokyo (Feb 28 - Mar 1). The core thesis: **if you're GPU-poor, finetuning a small model is cheaper and better than running a large base model.** We finetune Ministral 8B via Mistral's finetuning API on a specific task, then race it against the base small model and the base large model to prove finetuned-small beats base-large on the target domain.
+
+**Hackathon themes**: Satisfies **both** themes:
+- **Theme 1**: Finetuning (sponsored by W&B) - we finetune via Mistral API with W&B tracking
+- **Theme 2**: API - everything runs through Mistral's API (finetuning, inference, judging)
+
+**Time budget**: ~7hrs Day 1, ~6hrs Day 2 = ~13hrs total.
+**Mistral API key**: Available now.
+
+---
+
+## How Mistral Finetuning API Works
+
+### Data Format
+JSONL with chat messages:
+```json
+{"messages": [{"role": "user", "content": "Write a haiku about rain"}, {"role": "assistant", "content": "Gentle drops descend\nDancing on the windowpane\nEarth drinks deep again"}]}
+```
+
+### Workflow
+1. **Prepare** training data as `.jsonl` (500-2000 examples)
+2. **Upload** via Files API: `client.files.upload()`
+3. **Create job**: `client.fine_tuning.jobs.create(model="ministral-8b-latest", ...)`
+4. **Monitor**: Poll job status (QUEUED → VALIDATED → training → SUCCEEDED)
+5. **Use**: Call `client.chat.complete(model=finetuned_model_id, ...)` — same as any Mistral model
+
+### Key Details
+- **Cost**: Minimum $4 per finetuning job + $2/month model storage
+- **Duration**: ~30-60 min for 500-2000 examples on Ministral 8B
+- **Hyperparameters**: `training_steps` (100-500), `learning_rate` (1e-4 default)
+- **Validation**: Separate validation file supported, reports train/eval loss during training
+- **W&B integration**: Built-in — pass W&B API key + project name in job creation
+- **Output**: Finetuned model accessible via API only (no weight download)
+- **HuggingFace datasets**: Compatible — just convert to JSONL chat format
+
+### Models Available for Finetuning
+- `ministral-8b-latest` (our primary target)
+- `ministral-3b-latest` (faster, cheaper fallback)
+- `mistral-small-latest`
+- `open-mistral-7b`
+- `codestral-latest`
+- `mistral-large-latest`
+
+---
+
+## Finetuning Task Options
+
+We need a task where finetuning a small model gives a clear, demonstrable improvement over the base model. Below are all researched options with real datasets, ranked by hackathon "wow factor."
+
+---
+
+### Option A: Haiku Generation
+
+**Why**: Haiku is Japanese. Syllable compliance (5-7-5) is a **measurable metric**. Creative output is visually impressive.
+
+**Datasets**:
+| Dataset | Size | Format | Conversion |
+|---------|------|--------|------------|
+| [`davanstrien/haiku_dpo`](https://huggingface.co/datasets/davanstrien/haiku_dpo) | Synthetic, quality-scored (0-4 syllable compliance) | DPO pairs (good/bad haiku) | Medium |
+| [`davanstrien/haiku_prompts`](https://huggingface.co/datasets/davanstrien/haiku_prompts) | Prompt → haiku pairs | Instruction-response | Very low |
+| [`p1atdev/modern_haiku`](https://huggingface.co/datasets/p1atdev/modern_haiku) | Real haikus from Modern Haiku Association | Raw haiku text | High |
+
+**Eval metric**: Syllable compliance rate (5-7-5), LLM-judge creativity score.
+**Demo pitch**: "Finetuned Ministral 8B writes haikus with 95% syllable compliance. Base Mistral Large: 60%. Cost: $4."
+
+---
+
+### Option B: SQL Generation (Safe Business Pick)
+
+**Why**: Output is **objectively verifiable** — SQL either runs or it doesn't. Judges can test it live.
+
+**Datasets**:
+| Dataset | Size | Format | Conversion |
+|---------|------|--------|------------|
+| [`b-mc2/sql-create-context`](https://huggingface.co/datasets/b-mc2/sql-create-context) | 78,577 examples | Question + CREATE TABLE → SQL | Low |
+| [`gretelai/synthetic_text_to_sql`](https://huggingface.co/datasets/gretelai/synthetic_text_to_sql) | Synthetic, validated | Natural language → SQL | Low |
+
+**Eval metric**: SQL syntax validity, execution accuracy.
+**Demo pitch**: "Finetuned Ministral 8B: 88% correct SQL. Base model: 52%. Cost: $4."
+
+---
+
+### Option C: Japanese Business Translation
+
+**Why**: Tokyo hackathon, business context, immediately relatable to local judges.
+
+**Datasets**:
+| Dataset | Size | Format | Conversion |
+|---------|------|--------|------------|
+| [`ryo0634/bsd_ja_en`](https://huggingface.co/datasets/ryo0634/bsd_ja_en) | ~24,200 examples | Parallel business JP-EN | Medium |
+| [`izumi-lab/llm-japanese-dataset`](https://huggingface.co/datasets/izumi-lab/llm-japanese-dataset) | JP instruction-response pairs | Already chat-formatted | Low |
+
+**Eval metric**: BLEU score, LLM-judge fluency.
+**Demo pitch**: "Finetuned on real business dialogues. Small model translates business Japanese better than base Large."
+
+---
+
+### Option D: Function Calling / Tool Use (Cutting-Edge)
+
+**Why**: Agentic AI is hot. Output is objectively verifiable — function calls match the schema or they don't.
+
+**Datasets**:
+| Dataset | Size | Format | Conversion |
+|---------|------|--------|------------|
+| [`glaiveai/glaive-function-calling-v2`](https://huggingface.co/datasets/glaiveai/glaive-function-calling-v2) | 113k examples | System (functions) → user query → function call | Low |
+| [`Salesforce/xlam-function-calling-60k`](https://huggingface.co/datasets/Salesforce/xlam-function-calling-60k) | 60k verified (3-stage validated) | Functions + NL → correct call | Low |
+
+**Eval metric**: Valid JSON rate, correct function selection, argument accuracy.
+**Demo pitch**: "Small model calling tools reliably — 92% valid function calls vs 71% base."
+
+---
+
+### Option E: Structured JSON Extraction (Business Value)
+
+**Why**: Universal business need. Every company extracts structured data from messy text.
+
+**Datasets**:
+| Dataset | Size | Format | Conversion |
+|---------|------|--------|------------|
+| [`paraloq/json_data_extraction`](https://huggingface.co/datasets/paraloq/json_data_extraction) | Medical, ecommerce, simple docs | Text + schema → JSON | Low |
+| [`Arun63/sharegpt-structured-output-json`](https://huggingface.co/datasets/Arun63/sharegpt-structured-output-json) | Chat with JSON output | Already chat-formatted | Very low |
+| [`HenriqueGodoy/extract-0`](https://huggingface.co/datasets/HenriqueGodoy/extract-0) | 280k (arXiv, PubMed, Wikipedia) | Document → extraction | Medium |
+
+**Eval metric**: JSON validity rate, field extraction accuracy.
+
+---
+
+### Option F: Medical QA (High-Stakes Domain)
+
+**Why**: Accuracy matters. Impressive if a small finetuned model beats a large base on factual medical questions.
+
+**Datasets**:
+| Dataset | Size | Format | Conversion |
+|---------|------|--------|------------|
+| [`openlifescienceai/medmcqa`](https://huggingface.co/datasets/openlifescienceai/medmcqa) | Multiple-choice medical QA | Question + options → answer | Low-medium |
+| [`mteb/medical_qa`](https://huggingface.co/datasets/mteb/medical_qa) | 2,048 QA pairs | Question-answer | Low |
+
+**Eval metric**: Accuracy on held-out test set.
+
+---
+
+### Option G: Dad Jokes
+
+**Why**: Humor is inherently memorable. Setup → punchline is a clean finetuning task. Live demo gets laughs from judges. Nobody forgets the team that made them laugh.
+
+**Datasets**:
+| Dataset | Size | Format | Conversion |
+|---------|------|--------|------------|
+| [`shuttie/dadjokes`](https://huggingface.co/datasets/shuttie/dadjokes) | 53,400 jokes (52k train / 1.4k test) | `question` (setup) + `response` (punchline) — already split! | **Very low** |
+| [`Fraser/short-jokes`](https://huggingface.co/datasets/Fraser/short-jokes) | 231,657 short jokes | Single-field joke text (10-200 chars) | Low |
+
+**Conversion**: Trivially maps to chat format — setup is user message, punchline is assistant response.
+```json
+{"messages": [{"role": "user", "content": "Why did Mr. Potato Head get pulled over"}, {"role": "assistant", "content": "He was baked"}]}
+```
+
+**Eval metric**: LLM-judge humor score, audience laugh test (live demo!).
+**Demo pitch**: "Feed it a setup, watch it generate punchlines. Our finetuned model is funnier than base Mistral Large."
+
+---
+
+### Option H: Dungeon Master / D&D Narrator (Immersive Storytelling)
+
+**Why**: Interactive storytelling is compelling. Live demo: audience shouts actions, the model narrates the adventure. Engaging, creative, memorable.
+
+**Datasets**:
+| Dataset | Size | Format | Conversion |
+|---------|------|--------|------------|
+| [`m0no1/dnd-mechanics-dataset`](https://huggingface.co/datasets/m0no1/dnd-mechanics-dataset) | 40,365 examples | `instruction` (player action) → `output` (DM narration with dice rolls) | **Very low** — already instruction format |
+| [`microsoft/crd3`](https://huggingface.co/datasets/microsoft/crd3) | 398,682 dialogue turns from Critical Role (159 episodes) | Multi-turn dialogue with speaker names | Medium |
+| [`grantprice/DND-NLP`](https://huggingface.co/datasets/grantprice/DND-NLP) | 17,736 rows | D&D narrative text | Low-medium |
+
+**Conversion**: The mechanics dataset maps directly — player action as user, DM response as assistant.
+```json
+{"messages": [{"role": "user", "content": "I attack the zombie with my longsword"}, {"role": "assistant", "content": "Attack roll: [1d20+5] = 18. Hit! You swing your longsword in a wide arc, catching the zombie across the chest. Damage: [1d8+3] = 7 slashing. The creature staggers back, dark ichor seeping from the wound. It's still standing, but barely. What do you do next?"}]}
+```
+
+**Eval metric**: LLM-judge narrative quality, coherence, player engagement.
+**Demo pitch**: "Live D&D session with our finetuned model as Dungeon Master. Audience plays."
+
+---
+
+### Option I: Anime Character Roleplay
+
+**Why**: We're in Tokyo. Anime is everywhere. A model that can convincingly roleplay as different anime characters with their distinct speech patterns would absolutely resonate with local judges and audience.
+
+**Datasets**:
+| Dataset | Size | Format | Conversion |
+|---------|------|--------|------------|
+| [`hieunguyenminh/roleplay`](https://huggingface.co/datasets/hieunguyenminh/roleplay) | 5,760 character entries | `name` + `description` + `text` (with `<\|system\|>/<\|user\|>/<\|assistant\|>` markers) | **Very low** — already structured |
+| [`NousResearch/CharacterCodex`](https://huggingface.co/datasets/NousResearch/CharacterCodex) | 15,939 characters | `character_name` + `media_type` + `description` + `scenario` | Low |
+| [`joujiboi/japanese-anime-speech`](https://huggingface.co/datasets/joujiboi/japanese-anime-speech) | 73,004 audio-text pairs (110hrs) | Audio + Japanese transcription | Medium (extract text only) |
+
+**Conversion**: Roleplay dataset already has system/user/assistant structure — just reformat tags.
+```json
+{"messages": [
+  {"role": "system", "content": "You are Naruto Uzumaki. You are energetic, never give up, and dream of becoming Hokage. You use 'dattebayo' frequently."},
+  {"role": "user", "content": "How do you stay motivated when things get tough?"},
+  {"role": "assistant", "content": "That's my ninja way, dattebayo! When things get tough, I think about all the people I want to protect..."}
+]}
+```
+
+**Eval metric**: Character consistency score, speech pattern accuracy, LLM-judge persona fidelity.
+**Demo pitch**: "Talk to Naruto, Goku, or Sailor Moon. Our model nails their personality. In Tokyo, where anime lives."
+
+---
+
+### Option J: Emoji Translator (Visual & Fun)
+
+**Why**: Instantly visual, instantly demoable. Text → emoji is a unique task that shows the model learned a creative mapping. Audience can test it live with any sentence.
+
+**Datasets**:
+| Dataset | Size | Format | Conversion |
+|---------|------|--------|------------|
+| [`vincentclaes/emoji-predictor`](https://huggingface.co/datasets/vincentclaes/emoji-predictor) | 14,420 examples (10.6k train / 2.2k val / 1.6k test) | `text` (tweet) + `label` (emoji ID, 32 classes) | **Very low** |
+| [`MLap/Sentiment2Emoji`](https://huggingface.co/datasets/MLap/Sentiment2Emoji) | Sentiment-to-emoji mapping | CSV | Very low |
+
+**Conversion**: Tweet → emoji label, trivially mapped.
+```json
+{"messages": [{"role": "user", "content": "SWV are still amazing & talented. Gave us a show honey!!!"}, {"role": "assistant", "content": "😊"}]}
+```
+
+**Eval metric**: Emoji accuracy (correct sentiment emoji), creativity of multi-emoji sequences.
+**Demo pitch**: "Type anything. Our model turns it into emoji. Surprisingly accurate, surprisingly fun."
+
+---
+
+### Option K: Cocktail / Mixology Expert (Classy & Practical)
+
+**Why**: Given ingredients or a mood, generate creative cocktail recipes with names and descriptions. Visual, classy, practical. Great for demo — "Tell me a cocktail for a rainy night in Tokyo."
+
+**Datasets**:
+| Dataset | Size | Format | Conversion |
+|---------|------|--------|------------|
+| [`erwanlc/cocktails_recipe`](https://huggingface.co/datasets/erwanlc/cocktails_recipe) | 6,956 cocktails | `title` + `glass` + `garnish` + `recipe` + `ingredients` (JSON list) | Low-medium |
+| [`brianarbuckle/cocktail_recipes`](https://huggingface.co/datasets/brianarbuckle/cocktail_recipes) | 875 detailed recipes | `title` + `ingredients` + `directions` + NER tags | Low |
+
+**Conversion**: Create prompts from ingredients or moods, output is structured recipe.
+```json
+{"messages": [{"role": "user", "content": "Create a cocktail with rum and pineapple juice for a tropical evening"}, {"role": "assistant", "content": "🍹 Tropical Paradise\n\nGlass: Tiki glass\nIngredients:\n- 2 oz light rum\n- 4 oz pineapple juice\n- 0.5 oz lime juice\n- Splash of coconut cream\n\nGarnish: Pineapple wedge and cherry\n\nShake rum, juices, and coconut cream with ice. Strain into a tiki glass over crushed ice. Garnish with a pineapple wedge and cherry."}]}
+```
+
+**Eval metric**: Recipe coherence, ingredient validity, LLM-judge creativity score.
+**Demo pitch**: "Give it a mood and ingredients. Get a creative cocktail with a name and recipe. Cheers."
+
+---
+
+### Option L: ELI5 / Explain Like I'm 5 (Educational & Universally Impressive)
+
+**Why**: Complex topic → dead-simple explanation. Shows clear quality improvement. Universally relatable. Judges can test with anything: "Explain quantum physics to a 5-year-old."
+
+**Datasets**:
+| Dataset | Size | Format | Conversion |
+|---------|------|--------|------------|
+| [`rexarski/eli5_category`](https://huggingface.co/datasets/rexarski/eli5_category) | 105,004 Q&A pairs (91.7k train) across 11 categories | `title` (question) + `answers` (scored by upvotes) | **Very low** — already Q&A |
+
+**Categories**: Biology, Chemistry, Culture, Earth Science, Economics, Engineering, Mathematics, Physics, Psychology, Technology.
+
+**Conversion**: Question as user, top-voted answer as assistant. Filter by upvote score for quality.
+```json
+{"messages": [{"role": "user", "content": "Why is the sky blue?"}, {"role": "assistant", "content": "Imagine sunlight is like a bag of Skittles - all different colors mixed together. When the sunlight hits the tiny bits of air way up high, the blue Skittles bounce around the most because they're the smallest. So when you look up, you see all those blue Skittles bouncing around everywhere!"}]}
+```
+
+**Eval metric**: Readability score (Flesch-Kincaid), LLM-judge simplicity + accuracy.
+**Demo pitch**: "Ask it anything complex. It explains it so a 5-year-old gets it. Our finetuned model is clearer than base Large."
+
+---
+
+## Recommendation Summary
+
+| Option | "Wow" Factor | Conversion Effort | Measurability | Tokyo Relevance |
+|--------|-------------|-------------------|---------------|-----------------|
+| **A: Haiku** | ⭐⭐⭐ | Medium | High (syllable count) | ⭐⭐⭐ |
+| **B: SQL** | ⭐⭐ | Low | Very High (execution) | ⭐ |
+| **C: JP Translation** | ⭐⭐ | Medium | High (BLEU) | ⭐⭐⭐ |
+| **D: Function Calling** | ⭐⭐ | Low | Very High (schema match) | ⭐ |
+| **E: JSON Extraction** | ⭐⭐ | Low | Very High (validity) | ⭐ |
+| **F: Medical QA** | ⭐⭐ | Low | High (accuracy) | ⭐ |
+| **G: Dad Jokes** | ⭐⭐⭐ | Very Low | Medium (subjective) | ⭐ |
+| **H: D&D Narrator** | ⭐⭐⭐ | Very Low | Medium (narrative) | ⭐ |
+| **I: Anime Roleplay** | ⭐⭐⭐ | Very Low | Medium (persona) | ⭐⭐⭐ |
+| **J: Emoji Translator** | ⭐⭐⭐ | Very Low | High (accuracy) | ⭐ |
+| **K: Cocktail Expert** | ⭐⭐⭐ | Low-Medium | Medium (coherence) | ⭐⭐ |
+| **L: ELI5** | ⭐⭐⭐ | Very Low | High (readability) | ⭐ |
+
+**Top picks for maximum hackathon impact**: Pick one "fun/creative" (G, H, I, J, or K) and one "measurable/safe" (A, B, or D) as backup. At $4 per finetuning job, we can try 2-3.
+
+---
+
+## Architecture
+
+```
+                              Mistral API
+                                 |
+    ┌────────────────────────────┼────────────────────────────┐
+    |                            |                            |
+    v                            v                            v
+  Finetuned                  Base Small                   Base Large
+  Ministral 8B               Ministral 8B              Mistral Large
+  (our model)                (reference)               (gold standard)
+    |                            |                            |
+    └────────────┬───────────────┘                            |
+                 |                                            |
+    ┌────────────┴────────────────────────────────────────────┘
+    |
+    v
+  Astro Server Endpoint ──── multiplexed SSE ────> Browser (React)
+    |
+    v
+  Mistral Large (LLM-as-judge) ── quality scores ──> Quality Chart
+    |
+    v
+  W&B Dashboard ── training metrics ──> Experiment Tracking
+```
+
+Everything runs through Mistral's API. No local inference needed.
+
+- **3-way race**: Finetuned-small vs base-small vs base-large streaming side-by-side
+- **Mistral Large as judge**: Scores each output on domain-specific criteria
+- **W&B**: Tracks finetuning experiments (loss curves, hyperparameters)
+- **Cost calculator**: Shows finetuning cost + small inference vs large inference
+
+---
+
+## Tech Stack
+
+| Choice | Why |
+|--------|-----|
+| Astro 5 + React 19 | Same as Plan 1 & 2, consistent stack |
+| Tailwind CSS v4 | Fast styling, dark theme |
+| `@mistralai/mistralai` SDK | Finetuning API + chat streaming + judging |
+| Python scripts | Dataset preparation, JSONL conversion |
+| W&B (`wandb` SDK) | Finetuning experiment tracking (sponsor!) |
+| No local inference | Everything via Mistral API |
+
+---
+
+## File Structure
+
+```
+/
+  astro.config.mjs
+  package.json
+  tailwind.config.ts
+  .env                              # MISTRAL_API_KEY, WANDB_API_KEY
+
+  # Data preparation (Python)
+  data/
+    prepare_haiku.py                # Download + convert haiku dataset to JSONL
+    prepare_sql.py                  # Download + convert SQL dataset to JSONL
+    validate_jsonl.py               # Validate JSONL format before upload
+    training.jsonl                  # Output: training data
+    validation.jsonl                # Output: validation data (5-10% split)
+
+  # Finetuning scripts (Python)
+  finetune/
+    requirements.txt                # mistralai, wandb, datasets
+    upload_and_train.py             # Upload data, create finetuning job, monitor
+    evaluate.py                     # Run eval suite on finetuned vs base models
+
+  # Astro + React frontend
+  src/
+    layouts/
+      Layout.astro
+
+    pages/
+      index.astro                   # Landing page
+      api/
+        race.ts                     # POST -> 3-way race (finetuned vs base-small vs base-large)
+        evaluate.ts                 # POST -> Mistral Large judges all outputs
+        finetune-status.ts          # GET -> poll finetuning job status
+
+    components/
+      arena/
+        Arena.tsx                   # Main React island
+        ModelPanel.tsx              # Streaming panel (now shows "Finetuned" vs "Base")
+        StreamingText.tsx           # Text renderer with cursor
+        MetricsBar.tsx              # TTFT, tok/s, cost per query
+        RaceControls.tsx            # Prompt input + "Race!" button
+
+      results/
+        ComparisonChart.tsx         # Bar chart: finetuned vs base quality scores
+        CostAnalysis.tsx            # Cost breakdown: finetune + small vs just running large
+        WinRateCard.tsx             # "Finetuned wins X/Y rounds"
+
+      finetune/
+        FinetuneStatus.tsx          # Live finetuning job progress (if running during demo)
+        TrainingMetrics.tsx         # Loss curves from W&B (or embedded W&B iframe)
+
+      prompt/
+        PromptLibrary.tsx           # Task-specific prompts (haiku topics, SQL questions, etc.)
+
+      ui/
+        Header.tsx
+        ModelBadge.tsx
+
+    lib/
+      mistral.ts                    # Mistral client singleton
+      models.ts                     # Model metadata (finetuned ID, base IDs, costs)
+      prompts.ts                    # Task-specific prompt library
+      metrics.ts                    # TTFT, tok/s, cost calculation
+      evaluate.ts                   # Judge prompt template
+
+    hooks/
+      useRaceStream.ts              # SSE consumer for 3-way race
+      useFinetuneStatus.ts          # Poll finetuning job progress
+
+    types/
+      index.ts
+```
+
+---
+
+## Day-by-Day Schedule
+
+### DAY 1 (Saturday) - ~7 hours
+
+**Hour 0-1: Data Preparation**
+- Download haiku dataset (and SQL as backup) from HuggingFace
+- Write `prepare_haiku.py` conversion script → output `training.jsonl` + `validation.jsonl`
+- Validate with `validate_jsonl.py`
+- **Checkpoint**: Clean JSONL files ready for upload
+
+**Hour 1-2: Launch Finetuning**
+- Write `upload_and_train.py`
+- Upload training + validation data via Mistral Files API
+- Create finetuning job with W&B integration:
+  ```python
+  job = client.fine_tuning.jobs.create(
+      model="ministral-8b-latest",
+      training_files=[{"file_id": train_file.id, "weight": 1}],
+      validation_files=[val_file.id],
+      hyperparameters={"training_steps": 200, "learning_rate": 0.0001},
+      integrations=[{"type": "wandb", "project": "arena-dei-poveri"}],
+      auto_start=True
+  )
+  ```
+- **Finetuning runs in background (~30-60 min) while we build the UI**
+- **Checkpoint**: Job submitted, W&B dashboard showing training progress
+
+**Hour 2-4: Core Streaming Pipeline + Arena UI**
+- `pages/api/race.ts` - 3-way multiplexed SSE (finetuned + base-small + base-large)
+- `hooks/useRaceStream.ts` - client SSE consumer
+- `Arena.tsx`, `ModelPanel.tsx`, `StreamingText.tsx`, `MetricsBar.tsx`, `RaceControls.tsx`
+- Wire onto `index.astro`
+- **Use base models for testing while finetuning completes**
+- **Checkpoint**: Arena streams 3 models side-by-side
+
+**Hour 4-5: Finetuned Model Integration**
+- Check finetuning job status — should be done by now
+- Update `models.ts` with finetuned model ID
+- Test: finetuned model responds correctly to domain prompts
+- Write `evaluate.py` - run eval suite comparing finetuned vs base
+- **Checkpoint**: Finetuned model working in the arena
+
+**Hour 5-6.5: Results & Comparison UI**
+- `pages/api/evaluate.ts` - Mistral Large judges outputs
+- `ComparisonChart.tsx` - quality scores bar chart
+- `CostAnalysis.tsx` - cost breakdown table
+- `PromptLibrary.tsx` - task-specific prompts
+- **Checkpoint**: Can race + judge + see comparison
+
+**Hour 6.5-7: Prompt Library + Polish**
+- Curate 10-15 domain-specific test prompts
+- Skeleton loaders, error handling
+- **If haiku results are weak**: Launch SQL finetuning job as backup (runs overnight)
+- **Checkpoint**: END OF DAY 1 - Working arena with finetuned model
+
+### DAY 2 (Sunday) - ~6 hours
+
+**Hour 0-1: Win Rate & Benchmark**
+- `WinRateCard.tsx` - run N prompts, show "Finetuned wins X/Y"
+- Automated benchmark: run full eval suite, aggregate results
+- **If SQL backup was trained overnight**: Integrate and compare both
+- **Checkpoint**: Aggregate metrics available
+
+**Hour 1-2: W&B Integration Display**
+- `FinetuneStatus.tsx` / `TrainingMetrics.tsx` - show loss curves
+- Either embed W&B dashboard or pull metrics via W&B API
+- Show the training story: "Here's how our model learned"
+- **Checkpoint**: Training metrics visible in the UI
+
+**Hour 2-3: Cost Analysis**
+- `CostAnalysis.tsx` - detailed breakdown:
+  - Finetuning cost: $4 one-time
+  - Finetuned small inference: $X per 1M tokens
+  - Base large inference: $Y per 1M tokens
+  - Break-even: "After Z requests, finetuning pays for itself"
+- **Checkpoint**: Cost story is clear and compelling
+
+**Hour 3-5: Visual Polish + Demo Prep**
+- `Header.tsx` with "Arena dei Poveri" branding
+- Dark theme, animations, mobile responsiveness
+- Prepare demo script: show haiku race → judge → cost analysis → W&B metrics
+- End-to-end test full flow
+- **Checkpoint**: Demo-ready
+
+**Hour 5-6: Buffer**
+- Bug fixes only
+- Record backup demo video
+
+---
+
+## Mistral Tie-In (for judges)
+
+This plan uses Mistral's ecosystem more deeply than any other:
+1. **Mistral Finetuning API** - the core of the project
+2. **Mistral Chat API** - streaming inference for finetuned + base models
+3. **Mistral Large as judge** - LLM-as-judge quality scoring
+4. **W&B integration** - training metrics tracking (W&B is a sponsor!)
+5. **Story**: "We finetuned Mistral's Ministral 8B for $4, and it beats Mistral Large on haiku. Here's the proof, the cost math, and the training curves."
+
+---
+
+## Risks & Fallbacks
+
+| Risk | Fallback |
+|------|----------|
+| Finetuning job takes longer than expected | Start job ASAP (Hour 1). Build UI with base models while waiting. |
+| Finetuned model doesn't clearly beat base | Try different dataset (SQL as backup), increase training steps, or adjust prompt engineering. |
+| Haiku dataset too small for clear improvement | Combine multiple haiku datasets, or supplement with synthetic haiku generated by Mistral Large. |
+| Finetuning API rate limits or errors | Have backup dataset ready. Can launch second job immediately. |
+| W&B integration fails | Screenshot W&B dashboard manually, show as static image in UI. |
+| Mistral Large judge gives inconsistent scores | Add manual voting buttons as supplementary quality signal. |
+| API costs exceed budget | Monitor spend. Ministral 8B is cheap ($0.01/1M tokens). Finetuning minimum is only $4. |
+
+---
+
+## Verification
+
+1. **Data prep**: `validate_jsonl.py` passes on training + validation files
+2. **Finetuning**: Job completes with status SUCCEEDED, loss curve shows convergence
+3. **Inference**: Finetuned model responds to domain prompts correctly via API
+4. **Arena**: 3-way race streams all three models with correct labels
+5. **Judge**: Mistral Large returns scores, finetuned model scores higher on domain tasks
+6. **Win rate**: Finetuned beats base on >70% of domain-specific prompts
+7. **Cost analysis**: Math checks out against Mistral's published pricing
+8. **W&B**: Training metrics visible (loss curves, learning rate)
