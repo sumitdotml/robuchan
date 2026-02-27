@@ -1,4 +1,10 @@
 {
+  "permissions": {
+    "allow": [
+      "WebFetch(domain:docs.mistral.ai)",
+      "WebFetch(domain:mistral.ai)"
+    ]
+  },
   "hooks": {
     "PreToolUse": [
       {
