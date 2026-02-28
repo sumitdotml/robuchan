@@ -316,3 +316,31 @@ Use this exact shape for new entries.
 - occurrence_count: 1
 - evidence:
   - file:train/finetune.py:320
+
+### MISTAKE-20260228-022
+- id: MISTAKE-20260228-022
+- status: active
+- severity: medium
+- scope_tags: [code]
+- pattern: new script imported repository modules assuming package resolution from repo root, causing module-not-found at runtime when invoked as `python scripts/...`
+- prevention_rule: for standalone scripts under `scripts/`, avoid direct package imports that rely on execution path; prefer path-stable subprocess calls or explicit path handling
+- validation_check: run `uv run python scripts/prelaunch_check.py --help` and verify startup succeeds without import errors
+- first_seen: 2026-02-28
+- last_seen: 2026-02-28
+- occurrence_count: 1
+- evidence:
+  - file:scripts/prelaunch_check.py:95
+
+### MISTAKE-20260228-023
+- id: MISTAKE-20260228-023
+- status: active
+- severity: low
+- scope_tags: [code]
+- pattern: verification commands with output dependency were executed in parallel, producing invalid validation ordering
+- prevention_rule: when one verification step consumes artifacts from another step, run them sequentially instead of parallel
+- validation_check: ensure dependent checks run in order (producer command exit observed before consumer command reads output artifact)
+- first_seen: 2026-02-28
+- last_seen: 2026-02-28
+- occurrence_count: 1
+- evidence:
+  - file:scripts/prelaunch_check.py:202
