@@ -294,6 +294,39 @@ Demo reliability rule:
 - Final dry run, pitch talking points
 - **15:30**: Hands off. **16:00**: Judging starts.
 
+## Team Execution Split (2 Members, Up To Before Block 5A)
+
+Owners:
+- **Member A (Model/Infra owner)**: environment, data pipeline, fine-tuning job lifecycle, ft model handoff.
+- **Member B (Eval/Evidence owner)**: baseline and hard-case evaluation, judge outputs, W&B comparison evidence.
+
+Execution matrix (Day 1, Saturday, February 28, 2026):
+
+| Time (JST) | Member A (Model/Infra) | Member B (Eval/Evidence) | Required Handoff Artifact |
+|---|---|---|---|
+| 10:00-10:20 | Align response contract and output schema used in training/eval/demo | Align judge rubric and hard-case schema | `docs/handoffs/H0_contract.md` |
+| 10:20-11:20 | Run `uv init`/`uv add`/`uv sync`; run `uv run python data/prepare.py` | Draft `eval/hard_cases.jsonl` structure and judge prompt template | `data/train.jsonl`, `data/valid.jsonl`, `eval/hard_cases.jsonl` (draft) |
+| 11:20-12:00 | Run automated quality checks (parse, constraint, duplicates, non-triviality) | Run manual flavor-preservation plausibility spot checks | `docs/handoffs/H1_quality_gate.md` |
+| 12:00-13:00 | Launch fine-tune in Workspace A; verify RUNNING and integrations | Finalize baseline harness and scoring output schema | `docs/handoffs/H2_job_launch.md` (job id, run URL, start time) |
+| 13:00-15:00 | Monitor job state; prepare ft inference command and contingency script for Workspace B | Run baseline on `quick50`; finalize 30 hard cases; log baseline to W&B | `artifacts/baseline_metrics.json`, `docs/handoffs/H3_baseline.md` |
+| 15:00-15:50 | Run fine-tuned quick eval and export outputs | Run hard-case pairwise A/B judge and compute `hard_case_win_rate` | `artifacts/finetuned_metrics.json`, `artifacts/hard_case_ab.json` |
+| 15:50-16:00 | Joint kill-switch review and decision | Joint kill-switch review and decision | `docs/handoffs/H4_decision.md` (`GO_5A` or `RUN_5B`) |
+
+Task ticket template (use for every assigned task):
+1. `Task`
+2. `Owner`
+3. `Start-End (JST)`
+4. `Inputs`
+5. `Command(s)`
+6. `Output artifact path`
+7. `Definition of done` (binary pass/fail)
+8. `Fallback if blocked >15 min`
+
+Coordination rules:
+1. No task starts without an output artifact path.
+2. If blocked for >15 minutes, escalate to the other member and continue with fallback.
+3. Every handoff artifact must include timestamp, owner, and next expected action.
+
 ## Fallback Strategies
 
 **Pivot A — Honest Negative Result**: Document WHY fine-tuning didn't help. Show analysis. Judges respect honest technical work.
