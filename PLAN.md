@@ -189,7 +189,7 @@ Hard-case success metric:
 
 ## Demo (Marimo)
 
-`marimo run demo/demo.py` launches an interactive web app:
+`uv run marimo run demo/demo.py` launches an interactive web app:
 1. Input: dish/recipe text (free-form)
 2. Input: dietary requirement (free text or dropdown presets)
 3. Input: must-keep flavor notes (optional but recommended)
@@ -230,19 +230,19 @@ Demo reliability rule:
 
 **Block 1 (10:00-12:00): Environment + Data Pipeline + Quality Gate [120 min]**
 - Verify env: `MISTRAL_API_KEY`, add `WANDB_API_KEY`, `HF_TOKEN` to `.env`
-- Install: `pip install mistralai wandb marimo datasets rich`
-- Run `data/prepare.py` — download, parse, convert to JSONL
+- Install (uv): `uv venv && uv pip install mistralai wandb marimo datasets rich`
+- Run `uv run python data/prepare.py` — download, parse, convert to JSONL
 - Validate JSONL, spot-check 10 examples
 - Run mandatory quality gate checks on 100 random rows
 - **Exit**: quality gate passes and `data/train.jsonl`, `data/valid.jsonl`, `data/eval_holdout.jsonl` exist
 
 **Block 2 (12:00-13:00): Upload + Launch Fine-Tuning [60 min]**
-- Run `train/finetune.py` — upload files, create job, start training
+- Run `uv run python train/finetune.py` — upload files, create job, start training
 - Verify job status is RUNNING and W&B dashboard shows metrics
 - **Exit**: Job running server-side. Build everything else while it trains.
 
 **Block 3 (13:00-15:00): Baseline Eval + Eval Harness (WHILE TRAINING RUNS) [120 min]**
-- Run `eval/baseline.py` — 50 held-out examples through base model
+- Run `uv run python eval/baseline.py` — 50 held-out examples through base model
 - Record baseline `constraint_pass_rate`, `format_pass_rate`, avg judge scores
 - Build `eval/hard_cases.jsonl` (30 curated transformation-heavy cases)
 - Log baseline to W&B
@@ -250,9 +250,9 @@ Demo reliability rule:
 
 **Block 4 (15:00-16:00): Fine-Tuned Quick Eval + Comparison [60 min]**
 - Check fine-tuning job status (should be done by now)
-- Run `eval/evaluate.py --model ft:xxx --tag finetuned --split quick50`
+- Run `uv run python eval/evaluate.py --model ft:xxx --tag finetuned --split quick50`
 - Run hard-case pairwise A/B eval (`base` vs `ft`) on 30 curated cases
-- Run `scripts/log_artifacts.py` to log comparison to W&B
+- Run `uv run python scripts/log_artifacts.py` to log comparison to W&B
 
 **KILL SWITCH 1 (16:00)**: `constraint_pass_rate` improved >= +5% OR avg judge score >= +0.5 OR `hard_case_win_rate >= 60%`?
 - YES → Block 5A (demo build)
@@ -277,7 +277,7 @@ Demo reliability rule:
 **Block 7 (09:00-11:00): Final Eval + Publish [120 min]**
 - Full LLM-as-judge on best model (`final150`), freeze metrics
 - Re-run hard-case A/B on final candidate and freeze `hard_case_win_rate`
-- Run `scripts/hf_publish.py` — publish to HuggingFace
+- Run `uv run python scripts/hf_publish.py` — publish to HuggingFace
 - Log final artifacts to W&B
 
 **Block 8 (11:00-13:00): Demo Hardening + Rehearsal [120 min]**
