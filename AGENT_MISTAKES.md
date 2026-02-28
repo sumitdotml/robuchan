@@ -245,3 +245,17 @@ Use this exact shape for new entries.
 - occurrence_count: 1
 - evidence:
   - file:eval/eval_engine.py:491
+
+### MISTAKE-20260228-017
+- id: MISTAKE-20260228-017
+- status: active
+- severity: medium
+- scope_tags: [code]
+- pattern: wrapper script changed child process cwd but forwarded relative file path arguments without caller-based resolution, breaking path semantics outside repo root
+- prevention_rule: when invoking subprocesses with an overridden cwd, resolve user-supplied relative paths to absolute paths from caller context before dispatch
+- validation_check: run watcher from outside repo with a relative manifest path and verify the child command targets the intended file
+- first_seen: 2026-02-28
+- last_seen: 2026-02-28
+- occurrence_count: 1
+- evidence:
+  - file:scripts/watch_job.py:65
