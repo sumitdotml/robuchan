@@ -73,6 +73,13 @@ Dominant drop reasons:
 3. Audit/filter and keep `1200` final pairs.
 4. Run fine-tuning and evaluate with `quick50 + final150 + hard30`.
 
+## TODOs: Eval Input Handoff
+
+1. In dataset prep/export, generate and store eval-ready JSONL splits:
+`data/quick50.jsonl`, `data/final150.jsonl`, `eval/hard_cases.jsonl`.
+2. Treat these files as required inputs to the eval pipeline (`eval/baseline.py` and `eval/evaluate.py`); eval scripts do not create splits.
+3. Add a handoff check in dataset prep completion criteria: do not mark dataset prep complete until all three JSONL files exist and are readable.
+
 ## Open: Constraints Coverage Validation (Block 1 Hard Gate)
 
 **Status:** must decide during Block 1 after Food.com ingest.
