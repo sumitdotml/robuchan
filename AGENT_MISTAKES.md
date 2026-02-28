@@ -50,20 +50,20 @@ Use this exact shape for new entries.
 
 ## Entries
 
-### MISTAKE-YYYYMMDD-001
-- id:
+### MISTAKE-20260228-004
+- id: MISTAKE-20260228-004
 - status: active
-- severity:
-- scope_tags: []
-- pattern:
-- prevention_rule:
-- validation_check:
-- first_seen:
-- last_seen:
-- occurrence_count:
+- severity: high
+- scope_tags: [code]
+- pattern: retry loop uses range(max_retries) treating max_retries as total attempts instead of retries, causing off-by-one: with --num-retries 0 the loop is empty and the function returns None implicitly
+- prevention_rule: when a parameter is named max_retries, the loop must be range(max_retries + 1) and the "is this the last attempt" condition must be attempt < max_retries; add a post-loop raise so None can never be returned implicitly
+- validation_check: with --num-retries 0 the function must make exactly 1 attempt; with --num-retries N it must make N+1 attempts total
+- first_seen: 2026-02-28
+- last_seen: 2026-02-28
+- occurrence_count: 1
 - evidence:
-  - file:
-  - commit:
+  - file:data/prepare.py:583
+  - file:data/prepare.py:1194
 
 ### MISTAKE-20260228-001
 - id: MISTAKE-20260228-001

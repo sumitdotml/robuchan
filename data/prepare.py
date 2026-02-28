@@ -28,13 +28,16 @@ Block 2 — generate (Plan step 2):
 """
 
 import argparse
+import asyncio
 import hashlib
+import traceback
 import json
 import math
 import os
 import random
 import re
 import sys
+import threading
 import time
 from collections import Counter, defaultdict
 from datetime import datetime, timezone
@@ -70,7 +73,17 @@ ARTIFACTS_DIR = ROOT / "artifacts"
 KB_VERSION = "swaps_v0_2026-02-28"
 DEFAULT_TARGET_PAIRS = 1200
 DEFAULT_SOURCE_SIZE = 2000
+DEFAULT_CONCURRENCY = 2  # Defined by how soon you get rate limited by Mistral
+DEFAULT_MISTRAL_GEN_MODEL = "mistral-small-latest"
+API_TIMEOUT_SECS = 120  # Max seconds per Mistral call before treating as a hung connection
 KAGGLE_DATASET = "irkaal/foodcom-recipes-and-reviews"
+
+# Token budget by richness tier — concise needs far fewer tokens than rich
+MAX_TOKENS_BY_TIER: dict[str, int] = {
+    "concise":  512,
+    "standard": 1024,
+    "rich":     2048,
+}
 
 SUPPORTED_CONSTRAINTS = [
     "vegetarian",
@@ -541,23 +554,91 @@ def render_user_prompt(
 # Mistral API call with retry
 # ---------------------------------------------------------------------------
 
-def call_mistral(client, messages: list[dict], model: str, max_retries: int = 3) -> str:
-    for attempt in range(max_retries):
+def _is_retryable_error(e: Exception) -> bool:
+    """True for transient server/network errors worth retrying (5xx, 429, connection drops).
+    False for client errors (401, 400, 404) that won't resolve on retry.
+    """
+    msg = str(e).lower()
+    return any(token in msg for token in (
+        "502", "503", "504", "429",
+        "bad gateway", "service unavailable", "gateway timeout",
+        "rate limit", "too many requests",
+        "connection", "timeout", "reset",
+    ))
+
+
+def call_mistral(
+    client,
+    messages: list[dict],
+    model: str,
+    max_tokens: int = 1024,
+    max_retries: int = 6,
+    cancel_event: threading.Event | None = None,
+) -> str:
+    """Synchronous Mistral call with exponential-backoff retry.
+
+    cancel_event — if set (by asyncio.wait_for cancellation), the thread
+    stops retrying and exits early so it doesn't linger making extra requests.
+    """
+    for attempt in range(max_retries+1):
+        if cancel_event and cancel_event.is_set():
+            raise RuntimeError("call cancelled by caller")
         try:
             response = client.chat.complete(
                 model=model,
                 messages=messages,
                 temperature=0.7,
-                max_tokens=2048,
+                max_tokens=max_tokens,
             )
-            return response.choices[0].message.content
+            content = response.choices[0].message.content
+            if content is None:
+                raise ValueError("Mistral returned None content")
+            return content
         except Exception as e:
-            if attempt < max_retries - 1:
-                wait = 2 ** attempt
-                print(f"  API error (attempt {attempt + 1}/{max_retries}): {e}. Retrying in {wait}s...")
-                time.sleep(wait)
+            if attempt < max_retries and _is_retryable_error(e):
+                # Exponential backoff capped at 60 s, plus uniform jitter so
+                # concurrent workers don't all retry at exactly the same instant.
+                base = min(60, 5 * (2 ** attempt))   # 5, 10, 20, 40, 60, 60 …
+                wait = base + random.uniform(0, base * 0.25)
+                print(
+                    f"  Retryable error (attempt {attempt + 1}/{max_retries + 1}): "
+                    f"{type(e).__name__}: {e}. Retrying in {wait:.1f}s..."
+                )
+                # Interruptible sleep: wake every second to check cancel_event
+                deadline = time.monotonic() + wait
+                while time.monotonic() < deadline:
+                    if cancel_event and cancel_event.is_set():
+                        raise RuntimeError("call cancelled during backoff")
+                    time.sleep(min(1.0, deadline - time.monotonic()))
             else:
                 raise
+    raise RuntimeError(f"call_mistral: loop exited without returning (max_retries={max_retries})")
+
+
+async def call_mistral_async(
+    client,
+    messages: list[dict],
+    model: str,
+    max_tokens: int = 1024,
+    max_retries: int = 6,
+) -> str:
+    """Async wrapper: runs the synchronous Mistral call in a thread-pool worker.
+
+    Uses asyncio.to_thread so the event loop stays free to schedule other
+    concurrent API calls while this one is in-flight.
+
+    A threading.Event is shared with the thread so that when asyncio.wait_for
+    cancels this coroutine, the thread stops retrying immediately instead of
+    lingering and making extra HTTP requests (which would inflate real concurrency).
+    """
+    cancel_event = threading.Event()
+    try:
+        return await asyncio.to_thread(
+            call_mistral, client, messages, model, max_tokens, max_retries, cancel_event
+        )
+    except (asyncio.CancelledError, TimeoutError):
+        cancel_event.set()   # signal the thread to stop
+        raise
 
 
 # ---------------------------------------------------------------------------
@@ -977,6 +1058,301 @@ def _build_master_row(
     }
 
 
+async def _run_generate_async(
+    todo: list[dict],
+    args,
+    client,
+    constraints: dict,
+    aliases_data: dict,
+    kb_rules: list,
+    console,
+) -> dict:
+    """Async inner loop: processes todo recipes with up to args.concurrency parallel API calls.
+
+    All mutable state is safe to modify without locks because asyncio is
+    single-threaded — Python code between two `await` points runs atomically.
+    Only the API call itself (call_mistral_async → asyncio.to_thread) runs in a
+    thread-pool worker; everything else executes in the event loop.
+    """
+    state: dict = {
+        "kept_count": 0,
+        "gen_total": 0,
+        "candidate2_count": 0,
+        "reject_counts": Counter(),
+    }
+    stop_event = asyncio.Event()
+    sem = asyncio.Semaphore(args.concurrency)
+
+    console.print(
+        f"[bold]_run_generate_async started[/bold]"
+        f"  todo={len(todo)}  target={args.target_pairs}"
+        f"  model={args.model}  concurrency={args.concurrency}"
+        f"  timeout={API_TIMEOUT_SECS}s"
+    )
+
+    INTERNAL_MASTER_PATH.parent.mkdir(parents=True, exist_ok=True)
+    open_mode = "a" if args.resume else "w"
+
+    with open(INTERNAL_MASTER_PATH, open_mode) as master_file, Progress(
+        SpinnerColumn(),
+        TextColumn("[progress.description]{task.description}"),
+        BarColumn(),
+        MofNCompleteColumn(),
+        TimeElapsedColumn(),
+        console=console,
+        transient=False,
+    ) as progress:
+        task_id = progress.add_task(
+            f"Generating (kept: 0/{args.target_pairs})",
+            total=args.target_pairs,
+        )
+
+        async def process_one(recipe_entry: dict) -> None:
+            # Fast-exit: target already reached before we even start
+            if stop_event.is_set():
+                return
+
+            recipe_id = recipe_entry["source_recipe_id"]
+            recipe = recipe_entry["source_recipe"]
+            restriction = recipe_entry["target_restriction"]
+            violations = recipe_entry["detected_violations"] or []
+            cuisine = recipe_entry.get("cuisine", "International")
+            flavor_notes = recipe_entry.get("flavor_notes", [])
+            template_id = recipe_entry["template_id"]
+            richness_tier = assign_richness_tier(recipe_id, restriction)
+            max_tokens = MAX_TOKENS_BY_TIER[richness_tier]
+
+            system_content = SYSTEM_PROMPTS[richness_tier]
+            user_content = render_user_prompt(
+                template_id, recipe, restriction, cuisine, flavor_notes
+            )
+            prompt_messages = [
+                {"role": "system", "content": system_content},
+                {"role": "user", "content": user_content},
+            ]
+
+            progress.console.print(
+                f"[dim]→ START  {recipe_id}  restriction={restriction}"
+                f"  tier={richness_tier}  max_tokens={max_tokens}"
+                f"  template={template_id}  violations={len(violations)}[/dim]"
+            )
+
+            best_row: dict | None = None
+
+            for attempt_num in range(1, 3):
+                if stop_event.is_set():
+                    break
+
+                # Semaphore caps concurrent in-flight API calls.
+                # The await inside holds the slot until the HTTP response returns,
+                # letting other coroutines proceed with CPU work in between.
+                progress.console.print(
+                    f"[dim]  {recipe_id}  attempt={attempt_num}  waiting for semaphore slot…[/dim]"
+                )
+                async with sem:
+                    if stop_event.is_set():
+                        break
+                    state["gen_total"] += 1
+                    if attempt_num == 2:
+                        state["candidate2_count"] += 1
+                    progress.console.print(
+                        f"[cyan]  {recipe_id}  attempt={attempt_num}"
+                        f"  calling {args.model}"
+                        f"  (gen_total={state['gen_total']})[/cyan]"
+                    )
+                    t0 = time.monotonic()
+                    try:
+                        assistant_content = await asyncio.wait_for(
+                            call_mistral_async(
+                                client, prompt_messages, args.model,
+                                max_tokens=max_tokens,
+                                max_retries=args.num_retries,
+                            ),
+                            timeout=API_TIMEOUT_SECS,
+                        )
+                    except Exception as e:
+                        elapsed = time.monotonic() - t0
+                        state["reject_counts"]["api_error"] += 1
+                        progress.console.print(
+                            f"[red]  {recipe_id}  attempt={attempt_num}"
+                            f"  API ERROR after {elapsed:.1f}s"
+                            f"  (gen:{state['gen_total']} kept:{state['kept_count']}): {e}[/red]"
+                        )
+                        progress.update(
+                            task_id,
+                            description=(
+                                f"gen:{state['gen_total']} "
+                                f"kept:{state['kept_count']}/{args.target_pairs} "
+                                f"avail:{len(todo)} "
+                                f"err:{state['reject_counts']['api_error']}"
+                            ),
+                        )
+                        return
+                    elapsed = time.monotonic() - t0
+                    if assistant_content is None:
+                        state["reject_counts"]["api_error"] += 1
+                        progress.console.print(
+                            f"[red]  {recipe_id}  attempt={attempt_num}"
+                            f"  API returned None content after {elapsed:.1f}s[/red]"
+                        )
+                        continue
+                    progress.console.print(
+                        f"[green]  {recipe_id}  attempt={attempt_num}"
+                        f"  response received in {elapsed:.1f}s"
+                        f"  chars={len(assistant_content)}[/green]"
+                    )
+
+                # CPU-bound scoring runs outside the semaphore so the slot is
+                # freed for another recipe to start its API call immediately.
+                progress.console.print(
+                    f"[dim]  {recipe_id}  attempt={attempt_num}  scoring…[/dim]"
+                )
+                try:
+                    scores_raw = score_candidate(
+                        assistant_content=assistant_content,
+                        user_content=user_content,
+                        source_ingredients=recipe["ingredients"],
+                        source_steps=recipe["steps"],
+                        detected_violations=violations,
+                        target_restriction=restriction,
+                        constraints=constraints,
+                        kb_rules=kb_rules,
+                        aliases_data=aliases_data,
+                    )
+                    parsed = scores_raw.pop("_parsed")
+                    audit_scores = {k: v for k, v in scores_raw.items()}
+                    comp_passed, _ = check_completeness_validation(
+                        assistant_content, violations, parsed
+                    )
+                except Exception as score_err:
+                    state["reject_counts"]["scoring_error"] += 1
+                    progress.console.print(
+                        f"[red]  {recipe_id}  attempt={attempt_num}"
+                        f"  SCORING ERROR — {type(score_err).__name__}: {score_err}[/red]"
+                    )
+                    return
+
+                progress.console.print(
+                    f"[dim]  {recipe_id}  attempt={attempt_num}"
+                    f"  constraint_pass={audit_scores.get('constraint_pass')}"
+                    f"  relevance={audit_scores.get('relevance_score', 0):.2f}"
+                    f"  plausibility={audit_scores.get('substitution_plausibility_score', 0):.2f}"
+                    f"  nontrivial={audit_scores.get('nontriviality_score', 0):.2f}"
+                    f"  completeness_pass={audit_scores.get('semantic_completeness_pass')}"
+                    f"  comp_validation={int(comp_passed)}[/dim]"
+                )
+
+                # Adaptive trigger: try candidate 2 on first failure
+                if attempt_num == 1 and should_trigger_candidate2(audit_scores):
+                    state["reject_counts"]["trigger_candidate2"] += 1
+                    progress.console.print(
+                        f"[yellow]  {recipe_id}  attempt=1  triggering candidate 2"
+                        f"  (trigger_candidate2 total={state['reject_counts']['trigger_candidate2']})[/yellow]"
+                    )
+                    best_row = _build_master_row(
+                        recipe_id, recipe, restriction, violations,
+                        parsed, prompt_messages, audit_scores,
+                        template_id, richness_tier, comp_passed, attempt_num,
+                    )
+                    continue  # re-enter loop → attempt_num == 2
+
+                best_row = _build_master_row(
+                    recipe_id, recipe, restriction, violations,
+                    parsed, prompt_messages, audit_scores,
+                    template_id, richness_tier, comp_passed, attempt_num,
+                )
+                break
+
+            if best_row is None:
+                state["reject_counts"]["no_candidate"] += 1
+                progress.console.print(
+                    f"[red]  {recipe_id}  no usable candidate — skipping[/red]"
+                )
+                return
+
+            # Finalize kept_for_training flag
+            s = best_row["audit_scores"]
+            comp_ok = best_row.pop("_completeness_ok", False)
+            kept = (
+                s["constraint_pass"] == 1
+                and s["semantic_completeness_pass"] == 1
+                and comp_ok
+            )
+            best_row["kept_for_training"] = kept
+
+            if kept:
+                state["kept_count"] += 1
+                if state["kept_count"] >= args.target_pairs:
+                    stop_event.set()
+                progress.console.print(
+                    f"[bold green]  ✓ KEPT  {recipe_id}"
+                    f"  kept={state['kept_count']}/{args.target_pairs}[/bold green]"
+                )
+            else:
+                reject_reason = (
+                    "constraint_fail" if s["constraint_pass"] != 1
+                    else "semantic_fail" if s["semantic_completeness_pass"] != 1
+                    else "comp_validation_fail"
+                )
+                state["reject_counts"][reject_reason] += 1
+                progress.console.print(
+                    f"[yellow]  ✗ DROPPED  {recipe_id}  reason={reject_reason}[/yellow]"
+                )
+
+            # Always refresh so gen_total is visible even when nothing is kept yet
+            progress.update(
+                task_id,
+                completed=state["kept_count"],
+                description=(
+                    f"gen:{state['gen_total']} "
+                    f"kept:{state['kept_count']}/{args.target_pairs}"
+                ),
+            )
+
+            # Single-threaded event-loop writes are never interleaved
+            master_file.write(json.dumps(best_row, ensure_ascii=False) + "\n")
+            if kept or state["gen_total"] % 50 == 0:
+                master_file.flush()
+            progress.console.print(
+                f"[dim]← DONE  {recipe_id}  written to master[/dim]"
+            )
+
+        batch_size = 100
+        all_exceptions: list[Exception] = []
+        for batch_start in range(0, len(todo), batch_size):
+            if stop_event.is_set():
+                break
+            batch = todo[batch_start: batch_start + batch_size]
+            console.print(
+                f"[bold]Dispatching batch {batch_start // batch_size + 1}"
+                f" ({batch_start + 1}–{batch_start + len(batch)} of {len(todo)})…[/bold]"
+            )
+            results = await asyncio.gather(
+                *[process_one(entry) for entry in batch],
+                return_exceptions=True,
+            )
+            exceptions = [r for r in results if isinstance(r, Exception)]
+            all_exceptions.extend(exceptions)
+            if exceptions:
+                console.print(
+                    f"[red]  batch had {len(exceptions)} unhandled exception(s):[/red]"
+                )
+                for exc in exceptions[:3]:  # show first 3 to avoid flooding
+                    tb = "".join(traceback.format_exception(type(exc), exc, exc.__traceback__))
+                    console.print(tb, markup=False)
+
+        console.print(
+            f"[bold]all batches complete — gen_total={state['gen_total']}"
+            f"  kept={state['kept_count']}"
+            f"  api_errors={state['reject_counts'].get('api_error', 0)}"
+            f"  candidate2={state['candidate2_count']}"
+            f"  rejects={dict(state['reject_counts'])}"
+            f"  unhandled_exceptions={len(all_exceptions)}[/bold]"
+        )
+
+    return state
+
+
 def run_generate(args):
     console = Console()
     console.rule("[bold blue]Block 2: Synthetic Generation + Audit")
@@ -1007,132 +1383,27 @@ def run_generate(args):
         console.print(f"[yellow]Resume:[/yellow] {len(processed_ids):,} already processed")
 
     todo = [r for r in source_pool if r["source_recipe_id"] not in processed_ids]
-    console.print(f"  Remaining: {len(todo):,} | Target: {args.target_pairs:,} kept pairs")
+    console.print(
+        f"  Remaining: {len(todo):,} | Target: {args.target_pairs:,} kept pairs "
+        f"| Concurrency: {args.concurrency}"
+    )
 
-    kept_count = 0
-    gen_total = 0
-    candidate2_count = 0
-    reject_counts: Counter = Counter()
-
-    INTERNAL_MASTER_PATH.parent.mkdir(parents=True, exist_ok=True)
-    open_mode = "a" if args.resume else "w"
-
-    with open(INTERNAL_MASTER_PATH, open_mode) as master_file, Progress(
-        SpinnerColumn(),
-        TextColumn("[progress.description]{task.description}"),
-        BarColumn(),
-        MofNCompleteColumn(),
-        TimeElapsedColumn(),
-        console=console,
-        transient=False,
-    ) as progress:
-
-        task_id = progress.add_task(
-            f"Generating (kept: {kept_count}/{args.target_pairs})",
-            total=args.target_pairs,
+    state = asyncio.run(
+        _run_generate_async(
+            todo=todo,
+            args=args,
+            client=client,
+            constraints=constraints,
+            aliases_data=aliases_data,
+            kb_rules=kb_rules,
+            console=console,
         )
+    )
 
-        for processed_count, recipe_entry in enumerate(todo, start=1):
-            if kept_count >= args.target_pairs:
-                break
-
-            if processed_count % 1000 == 0:
-                progress.console.print(
-                    f"  [dim]Processed {processed_count:,} records "
-                    f"(kept: {kept_count:,}, generated: {gen_total:,})[/dim]"
-                )
-
-            recipe_id = recipe_entry["source_recipe_id"]
-            recipe = recipe_entry["source_recipe"]
-            restriction = recipe_entry["target_restriction"]
-            violations = recipe_entry["detected_violations"]
-            cuisine = recipe_entry.get("cuisine", "International")
-            flavor_notes = recipe_entry.get("flavor_notes", [])
-            template_id = recipe_entry["template_id"]
-            richness_tier = assign_richness_tier(recipe_id, restriction)
-
-            system_content = SYSTEM_PROMPTS[richness_tier]
-            user_content = render_user_prompt(
-                template_id, recipe, restriction, cuisine, flavor_notes
-            )
-            prompt_messages = [
-                {"role": "system", "content": system_content},
-                {"role": "user", "content": user_content},
-            ]
-
-            best_row: dict | None = None
-
-            for attempt_num in range(1, 3):
-                gen_total += 1
-                if attempt_num == 2:
-                    candidate2_count += 1
-
-                try:
-                    assistant_content = call_mistral(client, prompt_messages, args.model)
-                except Exception as e:
-                    progress.console.print(f"[red]  API error {recipe_id}: {e}[/red]")
-                    reject_counts["api_error"] += 1
-                    break
-
-                scores_raw = score_candidate(
-                    assistant_content=assistant_content,
-                    user_content=user_content,
-                    source_ingredients=recipe["ingredients"],
-                    source_steps=recipe["steps"],
-                    detected_violations=violations,
-                    target_restriction=restriction,
-                    constraints=constraints,
-                    kb_rules=kb_rules,
-                    aliases_data=aliases_data,
-                )
-                parsed = scores_raw.pop("_parsed")
-                audit_scores = {k: v for k, v in scores_raw.items()}
-
-                comp_passed, comp_failures = check_completeness_validation(
-                    assistant_content, violations, parsed
-                )
-
-                # Adaptive trigger: try candidate 2 on first failure
-                if attempt_num == 1 and should_trigger_candidate2(audit_scores):
-                    reject_counts["trigger_candidate2"] += 1
-                    best_row = _build_master_row(
-                        recipe_id, recipe, restriction, violations,
-                        parsed, prompt_messages, audit_scores,
-                        template_id, richness_tier, comp_passed, attempt_num,
-                    )
-                    continue  # try candidate 2
-
-                best_row = _build_master_row(
-                    recipe_id, recipe, restriction, violations,
-                    parsed, prompt_messages, audit_scores,
-                    template_id, richness_tier, comp_passed, attempt_num,
-                )
-                break
-
-            if best_row is None:
-                reject_counts["no_candidate"] += 1
-                continue
-
-            # Finalize kept_for_training flag
-            s = best_row["audit_scores"]
-            comp_ok = best_row.pop("_completeness_ok", False)
-            kept = (
-                s["constraint_pass"] == 1
-                and s["semantic_completeness_pass"] == 1
-                and comp_ok
-            )
-            best_row["kept_for_training"] = kept
-
-            if kept:
-                kept_count += 1
-                progress.update(
-                    task_id,
-                    completed=kept_count,
-                    description=f"Generating (kept: {kept_count}/{args.target_pairs})",
-                )
-
-            master_file.write(json.dumps(best_row, ensure_ascii=False) + "\n")
-            master_file.flush()
+    kept_count = state["kept_count"]
+    gen_total = state["gen_total"]
+    candidate2_count = state["candidate2_count"]
+    reject_counts = state["reject_counts"]
 
     # Write generation summary artifact
     ARTIFACTS_DIR.mkdir(parents=True, exist_ok=True)
@@ -1145,6 +1416,7 @@ def run_generate(args):
         "candidate2_triggered": candidate2_count,
         "adaptive_rate": round(candidate2_count / max(1, gen_total), 4),
         "reject_counts": dict(reject_counts),
+        "concurrency": args.concurrency,
         "internal_master_path": str(INTERNAL_MASTER_PATH),
     }
     with open(ARTIFACTS_DIR / "synthetic_generation_summary.json", "w") as f:
@@ -1156,6 +1428,7 @@ def run_generate(args):
     console.print(f"  Kept pairs:   [cyan]{kept_count:,}[/cyan] / {args.target_pairs:,}")
     console.print(f"  Generated:    [cyan]{gen_total:,}[/cyan] total candidates")
     console.print(f"  Candidate 2:  [cyan]{candidate2_count:,}[/cyan] triggered")
+    console.print(f"  Concurrency:  [cyan]{args.concurrency}[/cyan] parallel API slots")
     console.print(f"  Master JSONL: [cyan]{INTERNAL_MASTER_PATH}[/cyan]")
 
     if kept_count < args.target_pairs:
@@ -1188,7 +1461,11 @@ def main():
     gen_p = subparsers.add_parser("generate", help="Block 2: Generate synthetic adaptations")
     gen_p.add_argument("--source-pool", default=str(SOURCE_POOL_PATH))
     gen_p.add_argument("--target-pairs", type=int, default=DEFAULT_TARGET_PAIRS)
-    gen_p.add_argument("--model", default="mistral-large-latest")
+    gen_p.add_argument("--model", default=DEFAULT_MISTRAL_GEN_MODEL)
+    gen_p.add_argument("--concurrency", type=int, default=DEFAULT_CONCURRENCY,
+                       help=f"Max parallel API calls (default: {DEFAULT_CONCURRENCY})")
+    gen_p.add_argument("--num-retries", type=int, default=6,
+                       help="Max retries per API call on transient errors (default: 6)")
     gen_p.add_argument("--resume", action="store_true",
                        help="Append to existing internal_master.jsonl (skip processed IDs)")
 
