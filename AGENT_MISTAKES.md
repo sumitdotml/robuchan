@@ -70,12 +70,13 @@ Use this exact shape for new entries.
 - status: active
 - severity: medium
 - scope_tags: [planning, docs]
-- pattern: inconsistent numeric gates and fallback labels across plan sections after partial edits
+- pattern: inconsistent numeric gates or step numbering across plan sections after partial edits
 - prevention_rule: run a post-edit consistency pass across all thresholds, sample sizes, and pivot labels in dataset strategy, evaluation, timeline, and acceptance criteria before finalizing
-- validation_check: confirm `quick50`/`final120` and Pivot B/C wording are identical across sections using a final line-by-line review
+- validation_check: confirm quick/final sample labels and values, Pivot B/C wording, and numbered list order are identical and sequential across sections using a final line-by-line review
 - first_seen: 2026-02-28
 - last_seen: 2026-02-28
-- occurrence_count: 1
+- occurrence_count: 2
 - evidence:
   - file:PLAN.md:75
   - file:PLAN.md:239
+  - file:PLAN.md:197

@@ -5,7 +5,7 @@
 - Fine-tune **mistral-small-latest** via **Mistral's managed cloud fine-tuning API** for dietary recipe adaptation.
 - Training runs server-side (~30-60 min) while we build eval, demo, and everything else in parallel.
 - W&B integration is built-in via the `integrations` parameter — zero custom code for training metrics.
-- Demo via Marimo app showing base vs fine-tuned + LLM-as-judge scores.
+- Demo via Marimo app showing base vs fine-tuned + LLM-as-judge scores + substitution rationale.
 - Use one workspace as primary and the second as contingency (since workspaces are separate).
 - Publish training data, eval results, and model card to HuggingFace.
 
@@ -67,18 +67,35 @@ Local Machine                     Mistral API                    W&B
   2. Local MLX training
   3. Creating a custom dataset from scratch
 
+## Creative Adaptation Objective (Core Product Value)
+
+- Goal: transform a dish to satisfy a dietary requirement while preserving dish identity and flavor intent.
+- Non-goal: simple recipe retrieval by tag/filter only.
+- Product claim for judges: the model performs context-aware culinary rewriting, not deterministic search.
+
+Model response contract (used in training, eval, and demo):
+1. `Substitution Plan` — explicit ingredient mapping `original -> replacement` with short reason.
+2. `Adapted Recipe` — updated ingredients and updated steps.
+3. `Flavor Preservation Notes` — how core taste/aroma/texture are retained.
+4. `Constraint Check` — short self-check that output satisfies requested dietary rule.
+
 ## Dataset Strategy
 
 - Primary: `Sohy/RecipePair` — `mini` split first (8K rows), `default` (64K) if Run #2 needed
 - The `base` column embeds constraint as `categories: ['dairy_free']`. Parse via regex.
-- Convert to chat JSONL with system prompt + user prompt + assistant response
-- Split: shuffle and partition into train/valid/eval (`quick50` subset + `final120` holdout from eval pool)
+- Convert to chat JSONL with system prompt + user prompt + assistant response using the response contract
+- Split: shuffle and partition into train/valid/eval (`quick50` subset + `final150` holdout from eval pool)
 - **Mandatory data quality gate before Run #1** (random 100 rows from train candidate set):
   1. Parse success rate >= 99%
   2. Constraint extraction success >= 99%
   3. Target adaptation non-triviality >= 85% (ingredient or instruction changed vs source)
   4. Duplicate pair rate <= 5%
-  5. If any check fails, fix parser/filtering before any fine-tune spend
+  5. Flavor-preservation plausibility pass >= 80% on 30 manual spot checks
+  6. If any check fails, fix parser/filtering before any fine-tune spend
+
+Hard-case eval bank (manually curated, required):
+- Create `eval/hard_cases.jsonl` with 30 cases requiring non-trivial transformation (example: vegetarian mapo tofu preserving numbing/spicy profile).
+- Each case includes: source dish text, target dietary rule, and must-keep flavor anchors.
 
 ## JSONL Format (Mistral API)
 
@@ -98,6 +115,13 @@ Given a recipe and a dietary constraint, you must:
 2. Adjust cooking instructions to reflect ingredient changes
 3. Preserve the original dish's flavor profile and cultural identity
 4. Provide clear substitution rationale for each change
+
+Output format:
+- Substitution Plan:
+- Adapted Ingredients:
+- Adapted Steps:
+- Flavor Preservation Notes:
+- Constraint Check:
 ```
 
 ## Training Workflow (Mistral API)
@@ -150,23 +174,30 @@ response = client.chat.complete(
 
 **Deterministic compliance** (`eval/constraints.json`): banned ingredient lists per dietary constraint. `constraint_pass_rate` = (examples with 0 violations) / total.
 
-**LLM-as-Judge** (Mistral Large): rates adapted recipes on compliance, coherence, completeness, clarity (1-10 each). Returns structured JSON.
+**LLM-as-Judge** (Mistral Large): rates adapted recipes on compliance, flavor fidelity, cultural/dish identity preservation, and explanation quality (1-10 each). Returns structured JSON.
 
 **Two-stage evaluation**:
 1. **Quick gate**: 50 held-out examples for fast iterate/no-iterate decision.
-2. **Final freeze**: 120 held-out examples on best run for submission metrics.
+2. **Final freeze**: 150 held-out examples on best run for submission metrics.
+3. **Hard-case A/B**: 30 curated hard cases, blind pairwise comparison (base vs fine-tuned).
 
 Use the same examples/prompts for base and fine-tuned runs. The score delta is the headline number.
+
+Hard-case success metric:
+- `hard_case_win_rate` = percentage of hard cases where judge prefers fine-tuned output over base.
+- Target for strong claim: `hard_case_win_rate >= 60%`.
 
 ## Demo (Marimo)
 
 `marimo run demo/demo.py` launches an interactive web app:
-1. Dropdown: select dietary constraint
-2. Text area: paste a recipe OR select from pre-loaded examples
-3. Button: "Remix!"
-4. Side-by-side: base model vs fine-tuned model responses
-5. Judge scores: Mistral Large rates both outputs live (with cached fallback)
-6. Compliance check: pass/fail with violations highlighted
+1. Input: dish/recipe text (free-form)
+2. Input: dietary requirement (free text or dropdown presets)
+3. Input: must-keep flavor notes (optional but recommended)
+4. Text area: paste a recipe OR select from pre-loaded examples
+5. Button: "Remix!"
+6. Side-by-side: base model vs fine-tuned model responses
+7. Judge scores: Mistral Large rates both outputs live (with cached fallback)
+8. Compliance check: pass/fail with violations highlighted
 
 Demo reliability rule:
 - Precompute and cache at least 5 representative examples (base output, fine-tuned output, judge scores, compliance results).
@@ -187,6 +218,7 @@ Demo reliability rule:
 | `train/finetune.py` | Mistral API: upload data, create job, start, monitor |
 | `eval/evaluate.py` | Deterministic compliance + LLM-as-judge via Mistral Large |
 | `eval/baseline.py` | Base model evaluation (same harness, base model ID) |
+| `eval/hard_cases.jsonl` | Curated non-trivial dish adaptation cases with flavor anchors |
 | `eval/constraints.json` | Banned ingredient lists per dietary constraint |
 | `demo/demo.py` | Marimo interactive demo app |
 | `scripts/log_artifacts.py` | W&B artifact + eval metric logging |
@@ -212,15 +244,17 @@ Demo reliability rule:
 **Block 3 (13:00-15:00): Baseline Eval + Eval Harness (WHILE TRAINING RUNS) [120 min]**
 - Run `eval/baseline.py` — 50 held-out examples through base model
 - Record baseline `constraint_pass_rate`, `format_pass_rate`, avg judge scores
+- Build `eval/hard_cases.jsonl` (30 curated transformation-heavy cases)
 - Log baseline to W&B
-- **Exit**: Baseline numbers recorded, eval harness ready for fine-tuned model
+- **Exit**: Baseline numbers recorded, hard-case bank ready, eval harness ready for fine-tuned model
 
 **Block 4 (15:00-16:00): Fine-Tuned Quick Eval + Comparison [60 min]**
 - Check fine-tuning job status (should be done by now)
 - Run `eval/evaluate.py --model ft:xxx --tag finetuned --split quick50`
+- Run hard-case pairwise A/B eval (`base` vs `ft`) on 30 curated cases
 - Run `scripts/log_artifacts.py` to log comparison to W&B
 
-**KILL SWITCH 1 (16:00)**: `constraint_pass_rate` improved >= +5% OR avg judge score >= +0.5?
+**KILL SWITCH 1 (16:00)**: `constraint_pass_rate` improved >= +5% OR avg judge score >= +0.5 OR `hard_case_win_rate >= 60%`?
 - YES → Block 5A (demo build)
 - NO → Block 5B (contingency Run #2 on teammate workspace with adjusted hyperparams)
 
@@ -241,7 +275,8 @@ Demo reliability rule:
 ### Day 2: Sunday, March 1, 2026 (09:00-16:00 JST)
 
 **Block 7 (09:00-11:00): Final Eval + Publish [120 min]**
-- Full LLM-as-judge on best model (`final120`), freeze metrics
+- Full LLM-as-judge on best model (`final150`), freeze metrics
+- Re-run hard-case A/B on final candidate and freeze `hard_case_win_rate`
 - Run `scripts/hf_publish.py` — publish to HuggingFace
 - Log final artifacts to W&B
 
@@ -268,10 +303,11 @@ Demo reliability rule:
 ## Acceptance Criteria (Must-Have)
 
 1. Fine-tuned model improves over base: `constraint_pass_rate` >= +5% or `avg_score` >= +0.5
-2. W&B Models: training/eval metrics logged, artifacts logged
-3. HF publication: data, eval results, model card with fine-tuned model ID
-4. Live demo: Marimo app with base vs fine-tuned side-by-side + judge scores
-5. Demo reliability: 3 consecutive runs without failure (live or cached mode)
+2. Creativity/usefulness proof: `hard_case_win_rate >= 60%` on 30 curated transformation-heavy cases
+3. W&B Models: training/eval metrics logged, artifacts logged
+4. HF publication: data, eval results, model card with fine-tuned model ID
+5. Live demo: Marimo app with base vs fine-tuned side-by-side + judge scores + substitution rationale
+6. Demo reliability: 3 consecutive runs without failure (live or cached mode)
 
 ## Source References
 
