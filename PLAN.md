@@ -230,7 +230,9 @@ Demo reliability rule:
 
 **Block 1 (10:00-12:00): Environment + Data Pipeline + Quality Gate [120 min]**
 - Verify env: `MISTRAL_API_KEY`, add `WANDB_API_KEY`, `HF_TOKEN` to `.env`
-- Install (uv): `uv venv && uv pip install mistralai wandb marimo datasets rich`
+- Initialize project (one-time, if missing): `uv init --python 3.11`
+- Add deps: `uv add mistralai wandb marimo datasets rich`
+- Sync env: `uv sync`
 - Run `uv run python data/prepare.py` — download, parse, convert to JSONL
 - Validate JSONL, spot-check 10 examples
 - Run mandatory quality gate checks on 100 random rows
