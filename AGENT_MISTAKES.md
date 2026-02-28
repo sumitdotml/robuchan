@@ -189,3 +189,17 @@ Use this exact shape for new entries.
 - occurrence_count: 1
 - evidence:
   - file:train/finetune.py:406
+
+### MISTAKE-20260228-009
+- id: MISTAKE-20260228-009
+- status: active
+- severity: medium
+- scope_tags: [code, eval]
+- pattern: deterministic banned-term validation scanned full structured output and counted self-reported banned terms in the constraint check section as violations
+- prevention_rule: when deterministic checks target recipe content constraints, scope matching to adapted recipe sections and exclude self-report or audit sections from term scans
+- validation_check: run deterministic check smoke cases where banned terms appear only in `Constraint Check` and verify pass, then appear in `Adapted Ingredients` and verify fail
+- first_seen: 2026-02-28
+- last_seen: 2026-02-28
+- occurrence_count: 1
+- evidence:
+  - file:eval/eval_engine.py:318
