@@ -171,10 +171,11 @@ Use this exact shape for new entries.
 - validation_check: run `uv run ty check eval/eval_engine.py eval/evaluate.py eval/baseline.py` and verify no `invalid-argument-type` diagnostics on chat.complete message arguments
 - first_seen: 2026-02-28
 - last_seen: 2026-02-28
-- occurrence_count: 1
+- occurrence_count: 2
 - evidence:
   - file:eval/eval_engine.py:351
   - file:eval/eval_engine.py:410
+  - file:demo/demo.py:190
 
 ### MISTAKE-20260228-008
 - id: MISTAKE-20260228-008
@@ -485,3 +486,31 @@ Use this exact shape for new entries.
 - occurrence_count: 1
 - evidence:
   - file:train/finetune.py:320
+
+### MISTAKE-20260228-022
+- id: MISTAKE-20260228-022
+- status: active
+- severity: low
+- scope_tags: [code]
+- pattern: newly added reporting script mixed cli-configurable artifact paths with hardcoded defaults, producing inconsistent output when custom paths were passed
+- prevention_rule: when adding cli path flags, thread the same path values through all output sections instead of referencing module-level defaults
+- validation_check: run handoff autofill with non-default artifact paths and verify rendered markdown reflects those paths consistently
+- first_seen: 2026-02-28
+- last_seen: 2026-02-28
+- occurrence_count: 1
+- evidence:
+  - file:scripts/fill_handoffs.py:344
+
+### MISTAKE-20260228-023
+- id: MISTAKE-20260228-023
+- status: active
+- severity: low
+- scope_tags: [code]
+- pattern: expression-level use of dict.get(any) in comprehensions left values as any|none for static typing, triggering len()/attribute diagnostics
+- prevention_rule: when reading optional fields from dict[str, any], assign to local variables with isinstance guards before calling methods or len
+- validation_check: run `uv run ty check scripts/fill_handoffs.py demo/demo.py` and verify no `invalid-argument-type` or `possibly-missing-attribute` diagnostics
+- first_seen: 2026-02-28
+- last_seen: 2026-02-28
+- occurrence_count: 1
+- evidence:
+  - file:scripts/fill_handoffs.py:247
