@@ -1,0 +1,468 @@
+{
+  "version": "swaps_v0_2026-02-28",
+  "description": "High-confidence ingredient swap rules for dietary adaptation. Used for substitution plausibility scoring (kb_match_rate component).",
+  "rules": [
+    {
+      "rule_id": "veg_001",
+      "applies_to_constraints": ["vegetarian", "vegan"],
+      "match_terms": ["ground pork", "minced pork", "pork mince"],
+      "replacement": ["finely chopped shiitake mushrooms + toasted walnuts"],
+      "rationale": "Shiitake provides meaty chew and glutamate umami; walnuts add fat richness and crumble texture mimicking browned pork."
+    },
+    {
+      "rule_id": "veg_002",
+      "applies_to_constraints": ["vegetarian", "vegan"],
+      "match_terms": ["ground beef", "minced beef", "beef mince"],
+      "replacement": ["cooked brown lentils", "crumbled firm tofu + soy sauce"],
+      "rationale": "Lentils match the loose granular texture of ground beef; tofu provides protein density with umami from soy."
+    },
+    {
+      "rule_id": "veg_003",
+      "applies_to_constraints": ["vegetarian", "vegan"],
+      "match_terms": ["chicken breast", "chicken breasts", "boneless chicken"],
+      "replacement": ["jackfruit (young, canned in brine)", "seitan, sliced"],
+      "rationale": "Jackfruit shreds like chicken and absorbs marinades; seitan has dense chew and high protein comparable to poultry."
+    },
+    {
+      "rule_id": "veg_004",
+      "applies_to_constraints": ["vegetarian", "vegan"],
+      "match_terms": ["chicken", "chicken thigh", "chicken leg", "chicken wing", "whole chicken", "rotisserie chicken"],
+      "replacement": ["firm tofu, pressed and cubed", "chickpeas"],
+      "rationale": "Tofu is a versatile poultry substitute that absorbs spices and browns well; chickpeas provide protein with a hearty texture."
+    },
+    {
+      "rule_id": "veg_005",
+      "applies_to_constraints": ["vegetarian", "vegan"],
+      "match_terms": ["beef", "steak", "sirloin", "ribeye", "flank steak", "chuck", "brisket", "short ribs"],
+      "replacement": ["seitan, sliced or cubed", "portobello mushrooms, sliced thick"],
+      "rationale": "Seitan has meaty, fibrous texture and high protein; portobello mushrooms have substantial bite and deep umami flavor."
+    },
+    {
+      "rule_id": "veg_006",
+      "applies_to_constraints": ["vegetarian", "vegan"],
+      "match_terms": ["bacon", "streaky bacon", "crispy bacon"],
+      "replacement": ["smoked tempeh strips", "coconut bacon (coconut flakes + smoked paprika + tamari)"],
+      "rationale": "Smoked tempeh replicates smoky, savory, crispy qualities of bacon; coconut bacon provides crunch and smokiness."
+    },
+    {
+      "rule_id": "veg_007",
+      "applies_to_constraints": ["vegetarian", "vegan"],
+      "match_terms": ["ham", "prosciutto", "serrano ham"],
+      "replacement": ["smoked tofu, sliced thin", "marinated beets, thinly sliced"],
+      "rationale": "Smoked tofu provides saltiness and smoky depth; beets contribute color, sweetness, and earthy depth similar to cured pork."
+    },
+    {
+      "rule_id": "veg_008",
+      "applies_to_constraints": ["vegetarian", "vegan"],
+      "match_terms": ["sausage", "bratwurst", "kielbasa", "andouille", "chorizo", "italian sausage"],
+      "replacement": ["plant-based sausage", "spiced lentil patty (lentils + smoked paprika + fennel seeds)"],
+      "rationale": "Plant-based sausages replicate seasoned, fatty profile; spiced lentils with fennel provide herby sausage aromatics."
+    },
+    {
+      "rule_id": "veg_009",
+      "applies_to_constraints": ["vegetarian", "vegan"],
+      "match_terms": ["lamb", "ground lamb", "lamb chop", "lamb shank"],
+      "replacement": ["puy lentils + cumin + coriander", "jackfruit + harissa"],
+      "rationale": "Lentils with cumin and coriander replicate the earthy, spiced profile of lamb; jackfruit with harissa provides hearty, gamey notes."
+    },
+    {
+      "rule_id": "veg_010",
+      "applies_to_constraints": ["vegetarian", "vegan"],
+      "match_terms": ["turkey", "ground turkey", "turkey breast"],
+      "replacement": ["seitan, ground or sliced", "firm tofu, crumbled"],
+      "rationale": "Seitan and crumbled tofu replicate the lean, neutral protein base of turkey and absorb seasoning well."
+    },
+    {
+      "rule_id": "veg_011",
+      "applies_to_constraints": ["vegetarian", "vegan"],
+      "match_terms": ["fish", "white fish", "cod", "tilapia", "halibut", "sea bass", "snapper", "mahi mahi", "catfish", "haddock"],
+      "replacement": ["extra-firm tofu (marinated in nori + soy + lemon)", "banana blossom (canned in water)"],
+      "rationale": "Tofu marinated with nori provides mild oceanic flavor and flakes similarly; banana blossom has fibrous texture matching flaked white fish."
+    },
+    {
+      "rule_id": "veg_012",
+      "applies_to_constraints": ["vegetarian", "vegan"],
+      "match_terms": ["salmon", "smoked salmon"],
+      "replacement": ["marinated carrot ribbons (carrot + nori + smoked paprika + capers)", "beet gravlax (thinly sliced roasted beet)"],
+      "rationale": "Carrot ribbons marinated with nori and capers replicate color, mild brininess, and omega-fatty-acid richness; beet gravlax provides earthy sweetness and deep color."
+    },
+    {
+      "rule_id": "veg_013",
+      "applies_to_constraints": ["vegetarian", "vegan"],
+      "match_terms": ["shrimp", "prawns", "prawn"],
+      "replacement": ["king oyster mushroom, sliced into rounds", "hearts of palm, chunked"],
+      "rationale": "King oyster mushroom rounds hold shape and have firm, slightly bouncy texture; hearts of palm provide neutral flavor and fibrous bite close to shrimp."
+    },
+    {
+      "rule_id": "veg_014",
+      "applies_to_constraints": ["vegetarian", "vegan"],
+      "match_terms": ["crab", "crab meat", "crab stick"],
+      "replacement": ["jackfruit, shredded + nori + lemon", "hearts of palm, shredded"],
+      "rationale": "Jackfruit shredded with nori flakes replicates the flaky, briny quality of crab; hearts of palm have fibrous texture similar to crab strands."
+    },
+    {
+      "rule_id": "veg_015",
+      "applies_to_constraints": ["vegetarian", "vegan"],
+      "match_terms": ["anchovy", "anchovies", "anchovy paste"],
+      "replacement": ["miso paste + capers (1:1, mashed)", "nori + soy sauce + capers blend"],
+      "rationale": "Miso provides fermented umami depth; capers contribute brininess and pungency that anchovy brings. Nori adds oceanic mineral notes."
+    },
+    {
+      "rule_id": "veg_016",
+      "applies_to_constraints": ["vegetarian", "vegan"],
+      "match_terms": ["fish sauce", "nam pla"],
+      "replacement": ["1 tbsp soy sauce + 0.5 tsp lime juice + pinch sugar", "coconut aminos + lime juice"],
+      "rationale": "Soy sauce provides fermented savory depth; lime juice replicates the bright acidity and slight fishiness; sugar balances the flavor."
+    },
+    {
+      "rule_id": "veg_017",
+      "applies_to_constraints": ["vegetarian", "vegan"],
+      "match_terms": ["oyster sauce"],
+      "replacement": ["mushroom soy sauce + 0.5 tsp sugar", "hoisin sauce + splash soy sauce"],
+      "rationale": "Mushroom soy sauce provides the dark color and fermented depth of oyster sauce; sugar compensates for mild sweetness oyster sauce contributes."
+    },
+    {
+      "rule_id": "veg_018",
+      "applies_to_constraints": ["vegetarian", "vegan"],
+      "match_terms": ["chicken stock", "chicken broth", "beef stock", "beef broth", "bone broth", "meat stock", "meat broth"],
+      "replacement": ["vegetable stock", "vegetable broth + 1 tsp miso paste"],
+      "rationale": "Vegetable stock provides liquid base and mild savory depth; miso adds umami richness to compensate for the complexity of meat stocks."
+    },
+    {
+      "rule_id": "veg_019",
+      "applies_to_constraints": ["vegetarian", "vegan"],
+      "match_terms": ["fish stock", "fish broth", "dashi", "bonito", "katsuobushi", "bonito flakes"],
+      "replacement": ["kombu dashi (dried kelp + water)", "vegetable stock + nori"],
+      "rationale": "Kombu dashi replicates the oceanic umami and mineral depth of fish-based broths without any fish content."
+    },
+    {
+      "rule_id": "veg_020",
+      "applies_to_constraints": ["vegetarian", "vegan"],
+      "match_terms": ["worcestershire sauce"],
+      "replacement": ["vegan worcestershire (tamari + apple cider vinegar + molasses + cloves)", "tamari + tamarind paste"],
+      "rationale": "Tamari with ACV and molasses approximates the sweet-tangy-fermented profile of Worcestershire without anchovy."
+    },
+    {
+      "rule_id": "veg_021",
+      "applies_to_constraints": ["vegetarian", "vegan"],
+      "match_terms": ["gelatin"],
+      "replacement": ["agar-agar (equal amount by weight)", "carrageenan"],
+      "rationale": "Agar-agar is a seaweed-derived gelling agent with comparable gelling strength to gelatin; sets firmer at lower concentrations."
+    },
+    {
+      "rule_id": "veg_022",
+      "applies_to_constraints": ["vegetarian", "vegan"],
+      "match_terms": ["lard", "suet", "tallow", "dripping", "schmaltz", "bacon fat", "duck fat"],
+      "replacement": ["coconut oil", "vegan butter"],
+      "rationale": "Coconut oil provides similar fat content and high smoke point; vegan butter contributes emulsification and richness similar to animal fats."
+    },
+    {
+      "rule_id": "veg_023",
+      "applies_to_constraints": ["vegetarian", "vegan"],
+      "match_terms": ["shrimp paste", "belacan"],
+      "replacement": ["miso paste + nori powder (1 tsp miso + pinch nori)"],
+      "rationale": "Miso provides intense fermented umami; nori powder adds oceanic mineral depth to replicate the pungent profile of shrimp paste."
+    },
+    {
+      "rule_id": "dairy_001",
+      "applies_to_constraints": ["dairy_free", "vegan"],
+      "match_terms": ["butter", "unsalted butter", "salted butter"],
+      "replacement": ["vegan butter (same amount)", "coconut oil (for cooking)", "applesauce (for baking)"],
+      "rationale": "Vegan butter replicates emulsification and flavor; coconut oil is neutral for savory cooking; applesauce provides moisture in baked goods."
+    },
+    {
+      "rule_id": "dairy_002",
+      "applies_to_constraints": ["dairy_free", "vegan"],
+      "match_terms": ["heavy cream", "whipping cream", "double cream", "clotted cream"],
+      "replacement": ["full-fat coconut cream (refrigerated, solids only)", "cashew cream (1 cup soaked cashews blended with 0.5 cup water)"],
+      "rationale": "Full-fat coconut cream replicates fat content and richness; cashew cream is neutral-tasting and whips to similar consistency."
+    },
+    {
+      "rule_id": "dairy_003",
+      "applies_to_constraints": ["dairy_free", "vegan"],
+      "match_terms": ["milk", "whole milk", "skim milk", "2% milk"],
+      "replacement": ["oat milk (unsweetened)", "unsweetened almond milk", "soy milk"],
+      "rationale": "Oat milk has closest texture and neutral flavor to cow milk; soy milk has highest protein content and works best in savory applications."
+    },
+    {
+      "rule_id": "dairy_004",
+      "applies_to_constraints": ["dairy_free", "vegan"],
+      "match_terms": ["cream cheese"],
+      "replacement": ["cashew cream cheese (soaked cashews + lemon juice + apple cider vinegar)", "vegan cream cheese"],
+      "rationale": "Cashew cream cheese replicates tangy, spreadable profile of cream cheese with similar fat content and texture."
+    },
+    {
+      "rule_id": "dairy_005",
+      "applies_to_constraints": ["dairy_free", "vegan"],
+      "match_terms": ["parmesan", "pecorino", "grana padano"],
+      "replacement": ["nutritional yeast + cashew blend (3 tbsp nutritional yeast + 2 tbsp ground cashew)", "vegan parmesan"],
+      "rationale": "Nutritional yeast provides the umami, nutty, cheesy flavor compounds (B-vitamins); cashew adds fat and texture."
+    },
+    {
+      "rule_id": "dairy_006",
+      "applies_to_constraints": ["dairy_free", "vegan"],
+      "match_terms": ["cheese", "cheddar", "mozzarella", "brie", "feta", "gouda", "gruyere", "provolone", "swiss cheese", "cottage cheese", "monterey jack", "havarti", "ricotta", "mascarpone"],
+      "replacement": ["vegan cheese (cashew-based)", "tofu feta (extra-firm tofu + lemon + herbs)"],
+      "rationale": "Cashew-based vegan cheeses replicate melting behavior and creamy flavor; tofu feta mimics crumbly texture and tangy salt of feta."
+    },
+    {
+      "rule_id": "dairy_007",
+      "applies_to_constraints": ["dairy_free", "vegan"],
+      "match_terms": ["yogurt", "greek yogurt", "plain yogurt"],
+      "replacement": ["coconut milk yogurt (unsweetened)", "soy yogurt"],
+      "rationale": "Coconut and soy yogurts replicate thick, tangy profile; coconut provides richness, soy provides protein."
+    },
+    {
+      "rule_id": "dairy_008",
+      "applies_to_constraints": ["dairy_free", "vegan"],
+      "match_terms": ["sour cream", "creme fraiche"],
+      "replacement": ["cashew sour cream (cashews + lemon + ACV)", "coconut cream + 1 tsp lemon juice"],
+      "rationale": "Cashew sour cream replicates tanginess and richness; coconut cream with acid provides similar tartness and cooling quality."
+    },
+    {
+      "rule_id": "dairy_009",
+      "applies_to_constraints": ["dairy_free", "vegan"],
+      "match_terms": ["ghee", "clarified butter"],
+      "replacement": ["refined coconut oil", "vegan ghee"],
+      "rationale": "Refined coconut oil has high smoke point and neutral flavor comparable to ghee for high-heat cooking."
+    },
+    {
+      "rule_id": "dairy_010",
+      "applies_to_constraints": ["dairy_free", "vegan"],
+      "match_terms": ["buttermilk"],
+      "replacement": ["oat milk + 1 tbsp apple cider vinegar (let stand 5 min)"],
+      "rationale": "Plant milk curdled with acid replicates the tangy, slightly thick properties of buttermilk for baking reactions."
+    },
+    {
+      "rule_id": "gluten_001",
+      "applies_to_constraints": ["gluten_free"],
+      "match_terms": ["all-purpose flour", "flour", "wheat flour", "plain flour"],
+      "replacement": ["rice flour (for coating/thickening)", "almond flour (for baking, 1:1)", "gluten-free all-purpose flour blend (1:1)"],
+      "rationale": "Rice flour is light and neutral for coating; almond flour adds moisture and fat for baked goods; GF blends use xanthan gum for structure."
+    },
+    {
+      "rule_id": "gluten_002",
+      "applies_to_constraints": ["gluten_free"],
+      "match_terms": ["soy sauce"],
+      "replacement": ["tamari (gluten-free, same amount)", "coconut aminos (slightly sweeter)"],
+      "rationale": "Tamari is brewed without wheat and has nearly identical flavor to standard soy sauce; coconut aminos is naturally gluten-free with milder flavor."
+    },
+    {
+      "rule_id": "gluten_003",
+      "applies_to_constraints": ["gluten_free"],
+      "match_terms": ["pasta", "spaghetti", "penne", "fettuccine", "linguine", "macaroni", "lasagna", "egg noodles", "orzo"],
+      "replacement": ["rice pasta (same shape)", "glass noodles (bean thread)", "lentil pasta"],
+      "rationale": "Rice pasta and glass noodles are naturally gluten-free and hold sauces comparably; lentil pasta adds protein."
+    },
+    {
+      "rule_id": "gluten_004",
+      "applies_to_constraints": ["gluten_free"],
+      "match_terms": ["breadcrumbs", "panko"],
+      "replacement": ["gluten-free panko", "ground almonds", "crushed rice crackers"],
+      "rationale": "GF panko replicates crunch without wheat; ground almonds add nutty crunch and fat; rice cracker crumbs are light and crispy."
+    },
+    {
+      "rule_id": "gluten_005",
+      "applies_to_constraints": ["gluten_free"],
+      "match_terms": ["flour tortilla", "wrap"],
+      "replacement": ["corn tortilla (certified GF)", "lettuce wrap"],
+      "rationale": "Corn tortillas are naturally gluten-free and replicate the pliable, neutral wrap; lettuce wraps are fresh and crisp."
+    },
+    {
+      "rule_id": "gluten_006",
+      "applies_to_constraints": ["gluten_free"],
+      "match_terms": ["ramen", "ramen noodles", "udon", "soba", "noodles"],
+      "replacement": ["rice noodles", "shirataki noodles", "glass noodles"],
+      "rationale": "Rice noodles provide similar slippery texture; shirataki are naturally gluten-free; glass noodles absorb broth similarly."
+    },
+    {
+      "rule_id": "egg_001",
+      "applies_to_constraints": ["egg_free", "vegan"],
+      "match_terms": ["egg", "eggs", "whole egg"],
+      "replacement": ["flax egg (1 tbsp ground flaxseed + 3 tbsp water, rested 5 min)", "chia egg (1 tbsp chia seeds + 3 tbsp water)"],
+      "rationale": "Flax and chia eggs provide binding from mucilage; work in baked goods where eggs bind and add moisture."
+    },
+    {
+      "rule_id": "egg_002",
+      "applies_to_constraints": ["egg_free", "vegan"],
+      "match_terms": ["egg white", "egg whites"],
+      "replacement": ["aquafaba (3 tbsp per egg white, whip for meringue-style applications)", "chickpea water"],
+      "rationale": "Aquafaba (liquid from canned chickpeas) whips to stiff peaks like egg whites and sets when baked."
+    },
+    {
+      "rule_id": "egg_003",
+      "applies_to_constraints": ["egg_free", "vegan"],
+      "match_terms": ["mayonnaise"],
+      "replacement": ["vegan mayo (aquafaba-based)", "avocado + lemon juice (for spreading)"],
+      "rationale": "Aquafaba-based vegan mayo replicates emulsified, creamy texture; avocado provides richness and fat for spreading applications."
+    },
+    {
+      "rule_id": "nut_001",
+      "applies_to_constraints": ["nut_free"],
+      "match_terms": ["almond flour", "almond meal"],
+      "replacement": ["sunflower seed flour (ground sunflower seeds)", "oat flour (if gluten not a concern)", "tigernut flour"],
+      "rationale": "Sunflower seed flour has similar fat content and fine texture to almond flour; oat flour is a reliable baking substitute."
+    },
+    {
+      "rule_id": "nut_002",
+      "applies_to_constraints": ["nut_free"],
+      "match_terms": ["peanut butter"],
+      "replacement": ["sunflower seed butter (sunflower seeds, roasted)", "pea butter", "tahini (sesame seed paste)"],
+      "rationale": "Sunflower seed butter has near-identical consistency and fat profile; tahini provides richness with slightly more bitter note."
+    },
+    {
+      "rule_id": "nut_003",
+      "applies_to_constraints": ["nut_free"],
+      "match_terms": ["walnuts", "walnut"],
+      "replacement": ["pumpkin seeds (pepitas)", "sunflower seeds", "hemp seeds"],
+      "rationale": "Pumpkin seeds provide similar crunch and slight earthiness; sunflower seeds have comparable fat content and neutral flavor."
+    },
+    {
+      "rule_id": "nut_004",
+      "applies_to_constraints": ["nut_free"],
+      "match_terms": ["cashews", "cashew"],
+      "replacement": ["pumpkin seeds (pepitas)", "sunflower seeds", "hemp hearts"],
+      "rationale": "Pumpkin seeds and sunflower seeds provide crunch without nut allergen risk; hemp hearts add protein and mild flavor."
+    },
+    {
+      "rule_id": "nut_005",
+      "applies_to_constraints": ["nut_free"],
+      "match_terms": ["almond", "almonds"],
+      "replacement": ["pumpkin seeds (pepitas)", "sunflower seeds (toasted)"],
+      "rationale": "Toasted pumpkin or sunflower seeds provide crunch and mild, nutty-adjacent flavor without tree nut allergens."
+    },
+    {
+      "rule_id": "sodium_001",
+      "applies_to_constraints": ["low_sodium"],
+      "match_terms": ["salt", "table salt", "sea salt", "kosher salt", "rock salt"],
+      "replacement": ["lemon juice + fresh herbs (parsley, thyme, chives)", "potassium chloride salt substitute (half amount)"],
+      "rationale": "Acid from lemon brightens flavor similarly to salt; potassium chloride salt substitute reduces sodium while maintaining some salinity."
+    },
+    {
+      "rule_id": "sodium_002",
+      "applies_to_constraints": ["low_sodium"],
+      "match_terms": ["soy sauce", "tamari"],
+      "replacement": ["low-sodium tamari (30% less sodium)", "coconut aminos (naturally low sodium)"],
+      "rationale": "Low-sodium tamari reduces sodium by ~30% with minimal flavor change; coconut aminos are naturally low-sodium with mild sweetness."
+    },
+    {
+      "rule_id": "sodium_003",
+      "applies_to_constraints": ["low_sodium"],
+      "match_terms": ["miso", "miso paste", "white miso", "red miso"],
+      "replacement": ["low-sodium miso paste (same amount)", "white miso paste (lower sodium than red, small amount)"],
+      "rationale": "Low-sodium miso retains fermented umami complexity with significantly reduced sodium content."
+    },
+    {
+      "rule_id": "sodium_004",
+      "applies_to_constraints": ["low_sodium"],
+      "match_terms": ["capers"],
+      "replacement": ["sun-dried tomatoes (oil-packed, rinsed)", "green olives (rinsed thoroughly)"],
+      "rationale": "Rinsed sun-dried tomatoes provide briny, tangy punch with minimal sodium after rinsing; olives add similar piquancy when thoroughly rinsed."
+    },
+    {
+      "rule_id": "sugar_001",
+      "applies_to_constraints": ["low_sugar"],
+      "match_terms": ["sugar", "white sugar", "granulated sugar"],
+      "replacement": ["erythritol (1:1 by volume)", "monk fruit sweetener (0.5:1 ratio, sweeter)"],
+      "rationale": "Erythritol bakes similarly to sugar with minimal glycemic impact; monk fruit is highly sweet with zero calories."
+    },
+    {
+      "rule_id": "sugar_002",
+      "applies_to_constraints": ["low_sugar"],
+      "match_terms": ["honey"],
+      "replacement": ["stevia-based honey substitute", "pureed dates (small amount, higher fiber, less sweet impact per serving)"],
+      "rationale": "Stevia-based honey alternatives provide sweetness without significant blood sugar impact; dates have fiber that moderates absorption."
+    },
+    {
+      "rule_id": "sugar_003",
+      "applies_to_constraints": ["low_sugar"],
+      "match_terms": ["brown sugar", "light brown sugar", "dark brown sugar"],
+      "replacement": ["erythritol + 0.5 tsp molasses (for color and depth)", "coconut sugar (lower GI, same amount)"],
+      "rationale": "Erythritol with molasses replicates the caramel depth of brown sugar; coconut sugar has lower glycemic index than refined brown sugar."
+    },
+    {
+      "rule_id": "sugar_004",
+      "applies_to_constraints": ["low_sugar"],
+      "match_terms": ["maple syrup"],
+      "replacement": ["sugar-free maple-flavored syrup", "monk fruit syrup + 0.25 tsp maple extract"],
+      "rationale": "Sugar-free maple syrup uses natural or artificial sweeteners; monk fruit syrup with extract replicates flavor without glycemic impact."
+    },
+    {
+      "rule_id": "fat_001",
+      "applies_to_constraints": ["low_fat"],
+      "match_terms": ["butter", "unsalted butter"],
+      "replacement": ["unsweetened applesauce (for baking, equal amount)", "low-sodium vegetable broth (for sauteing, as needed)"],
+      "rationale": "Applesauce provides moisture and binding in baked goods at a fraction of the fat; broth deglazes and prevents sticking in savory cooking."
+    },
+    {
+      "rule_id": "fat_002",
+      "applies_to_constraints": ["low_fat"],
+      "match_terms": ["heavy cream", "whipping cream"],
+      "replacement": ["evaporated skim milk (for sauces)", "plain low-fat Greek yogurt (for dressings/dips)"],
+      "rationale": "Evaporated skim milk thickens sauces similarly with minimal fat; Greek yogurt provides creaminess and protein for cold applications."
+    },
+    {
+      "rule_id": "fat_003",
+      "applies_to_constraints": ["low_fat"],
+      "match_terms": ["coconut milk", "full-fat coconut milk", "coconut cream"],
+      "replacement": ["light coconut milk (60% less fat)", "evaporated skim milk + coconut extract"],
+      "rationale": "Light coconut milk significantly reduces fat while maintaining coconut flavor; evaporated milk with extract is lowest-fat option."
+    },
+    {
+      "rule_id": "fat_004",
+      "applies_to_constraints": ["low_fat"],
+      "match_terms": ["mayonnaise"],
+      "replacement": ["plain low-fat Greek yogurt", "avocado (for spreads, healthier fat profile)"],
+      "rationale": "Low-fat Greek yogurt replicates creamy, tangy quality at a fraction of the fat; avocado has healthier unsaturated fats."
+    },
+    {
+      "rule_id": "shellfish_001",
+      "applies_to_constraints": ["shellfish_free"],
+      "match_terms": ["shrimp", "prawns", "prawn"],
+      "replacement": ["hearts of palm, cut into rounds", "king oyster mushroom, sliced into rounds"],
+      "rationale": "Hearts of palm have fibrous, firm texture close to cooked shrimp; king oyster mushroom rounds hold shape and have bouncy, seafood-adjacent texture."
+    },
+    {
+      "rule_id": "shellfish_002",
+      "applies_to_constraints": ["shellfish_free"],
+      "match_terms": ["oyster sauce"],
+      "replacement": ["mushroom soy sauce + pinch of sugar", "hoisin sauce (small amount)"],
+      "rationale": "Mushroom soy sauce provides the dark color, fermented depth, and umami of oyster sauce without shellfish."
+    },
+    {
+      "rule_id": "shellfish_003",
+      "applies_to_constraints": ["shellfish_free"],
+      "match_terms": ["crab", "crab meat", "crab stick"],
+      "replacement": ["jackfruit (young, shredded) + nori flakes", "hearts of palm, shredded"],
+      "rationale": "Shredded jackfruit with nori provides fibrous texture and subtle oceanic flavor; hearts of palm shred to crab-like strands."
+    },
+    {
+      "rule_id": "shellfish_004",
+      "applies_to_constraints": ["shellfish_free"],
+      "match_terms": ["lobster"],
+      "replacement": ["swordfish, chunked", "extra-firm tofu marinated in soy + lemon + nori"],
+      "rationale": "Swordfish has dense, meaty texture comparable to lobster; marinated tofu absorbs oceanic flavors for a plant-based alternative."
+    },
+    {
+      "rule_id": "shellfish_005",
+      "applies_to_constraints": ["shellfish_free"],
+      "match_terms": ["scallop", "scallops"],
+      "replacement": ["king oyster mushroom caps (scored and seared)", "firm tofu rounds (marinated)"],
+      "rationale": "King oyster mushroom caps sear to golden crust similar to scallops; firm tofu rounds hold shape and absorb brine marinade."
+    },
+    {
+      "rule_id": "shellfish_006",
+      "applies_to_constraints": ["shellfish_free"],
+      "match_terms": ["clam", "clams", "mussel", "mussels"],
+      "replacement": ["button mushrooms (quartered, simmered in broth)", "sun-dried tomatoes in brine"],
+      "rationale": "Mushrooms simmered in broth absorb liquid and provide meaty, briny-adjacent texture; sun-dried tomatoes in brine add briny, umami depth."
+    },
+    {
+      "rule_id": "shellfish_007",
+      "applies_to_constraints": ["shellfish_free"],
+      "match_terms": ["shrimp paste", "belacan"],
+      "replacement": ["miso paste + nori powder (1 tsp miso + 0.5 tsp nori)", "fermented black bean paste (small amount)"],
+      "rationale": "Miso provides intense fermented savory depth; nori adds oceanic mineral quality to approximate the funk of shrimp paste."
+    }
+  ]
+}

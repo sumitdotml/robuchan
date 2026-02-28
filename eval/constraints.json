@@ -7,7 +7,10 @@
       "butternut squash (not dairy butter)",
       "cream of tartar (not dairy cream)",
       "coconut cream (not dairy cream — only banned under dairy_free if listed explicitly)",
-      "eggplant (not egg)"
+      "eggplant (not egg)",
+      "soymilk (not dairy)",
+      "buckwheat (not gluten)",
+      "cornflour (not gluten)"
     ]
   },
   "dairy_free": {
@@ -57,7 +60,8 @@
       "tempura batter",
       "graham cracker", "graham crust",
       "beer", "ale", "lager", "stout",
-      "soba"
+      "soba",
+      "cornbread", "pasta"
     ]
   },
   "vegetarian": {
@@ -99,7 +103,8 @@
       "dashi", "bonito", "katsuobushi", "bonito flakes",
       "oyster sauce",
       "shrimp paste", "belacan",
-      "worcestershire sauce"
+      "worcestershire sauce",
+      "hamburger", "chickens", "crawfish", "crabmeat"
     ]
   },
   "vegan": {
