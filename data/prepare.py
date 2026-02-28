@@ -74,10 +74,10 @@ ARTIFACTS_DIR = ROOT / "artifacts"
 KB_VERSION = "swaps_v0_2026-02-28"
 DEFAULT_TARGET_PAIRS = 1200
 DEFAULT_SOURCE_SIZE = 2000
-DEFAULT_CONCURRENCY = 1024  # Defined by how soon you get rate limited by Mistral
+DEFAULT_CONCURRENCY = 4096  # Defined by how soon you get rate limited by Mistral
 DEFAULT_RETRIES = 0 # we have enough data, don't retry
 DEFAULT_MISTRAL_GEN_MODEL = "mistral-large-latest"
-API_TIMEOUT_SECS = 60  # Max seconds per Mistral call before treating as a hung connection
+API_TIMEOUT_SECS = 240  # Max seconds per Mistral call before treating as a hung connection
 KAGGLE_DATASET = "irkaal/foodcom-recipes-and-reviews"
 
 # Token budget by richness tier — concise needs far fewer tokens than rich
@@ -1354,7 +1354,7 @@ async def _run_generate_async(
                 f"[dim]← DONE  {recipe_id}  {'master' if kept else 'rejected_log'}[/dim]"
             )
 
-        batch_size = 100
+        batch_size = args.concurrency
         all_exceptions: list[Exception] = []
         for batch_start in range(0, len(todo), batch_size):
             if stop_event.is_set():
