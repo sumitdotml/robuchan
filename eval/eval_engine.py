@@ -486,6 +486,7 @@ def compute_summary(
     eval_completion_tokens: int,
     judge_prompt_tokens: int,
     judge_completion_tokens: int,
+    judge_enabled: bool,
     prompt_price_per_1m: float,
     completion_price_per_1m: float,
     judge_prompt_price_per_1m: float,
@@ -507,6 +508,13 @@ def compute_summary(
         for row in row_results
         if isinstance(row.get("judge"), dict) and row["judge"].get("compliance") is not None
     ]
+    judge_total_rows = len(row_results) if judge_enabled else 0
+    judge_scored_rows = len(judge_scores) if judge_enabled else 0
+    judge_compliance_scored_rows = len(compliance_scores) if judge_enabled else 0
+    judge_missing_rows = (judge_total_rows - judge_scored_rows) if judge_enabled else 0
+    judge_compliance_missing_rows = (
+        judge_total_rows - judge_compliance_scored_rows
+    ) if judge_enabled else 0
 
     eval_cost = (
         (eval_prompt_tokens / 1_000_000.0) * prompt_price_per_1m
@@ -522,8 +530,24 @@ def compute_summary(
         "format_pass_rate": mean(format_passes) if format_passes else 0.0,
         "constraint_checked_rows": len(checked_constraints),
         "constraint_pass_rate": mean(checked_constraints) if checked_constraints else None,
-        "avg_judge_score": mean(judge_scores) if judge_scores else None,
-        "avg_judge_compliance": mean(compliance_scores) if compliance_scores else None,
+        "judge_enabled": judge_enabled,
+        "judge_scored_rows": judge_scored_rows,
+        "judge_missing_rows": judge_missing_rows,
+        "judge_score_coverage": (
+            judge_scored_rows / judge_total_rows if judge_total_rows else None
+        ),
+        "avg_judge_score": (
+            mean(judge_scores) if judge_total_rows and judge_missing_rows == 0 else None
+        ),
+        "avg_judge_score_scored_rows": mean(judge_scores) if judge_scores else None,
+        "judge_compliance_scored_rows": judge_compliance_scored_rows,
+        "judge_compliance_missing_rows": judge_compliance_missing_rows,
+        "avg_judge_compliance": (
+            mean(compliance_scores)
+            if judge_total_rows and judge_compliance_missing_rows == 0
+            else None
+        ),
+        "avg_judge_compliance_scored_rows": mean(compliance_scores) if compliance_scores else None,
         "tokens": {
             "eval_prompt_tokens": eval_prompt_tokens,
             "eval_completion_tokens": eval_completion_tokens,
@@ -598,8 +622,13 @@ def maybe_log_to_wandb(
         "format_pass_rate": summary["format_pass_rate"],
         "constraint_checked_rows": summary["constraint_checked_rows"],
         "constraint_pass_rate": summary["constraint_pass_rate"] or 0.0,
+        "judge_scored_rows": summary["judge_scored_rows"],
+        "judge_missing_rows": summary["judge_missing_rows"],
+        "judge_score_coverage": summary["judge_score_coverage"] or 0.0,
         "avg_judge_score": summary["avg_judge_score"] or 0.0,
+        "avg_judge_score_scored_rows": summary["avg_judge_score_scored_rows"] or 0.0,
         "avg_judge_compliance": summary["avg_judge_compliance"] or 0.0,
+        "avg_judge_compliance_scored_rows": summary["avg_judge_compliance_scored_rows"] or 0.0,
         "eval_prompt_tokens": summary["tokens"]["eval_prompt_tokens"],
         "eval_completion_tokens": summary["tokens"]["eval_completion_tokens"],
         "judge_prompt_tokens": summary["tokens"]["judge_prompt_tokens"],
@@ -781,6 +810,7 @@ def run(
         eval_completion_tokens=eval_completion_tokens,
         judge_prompt_tokens=judge_prompt_tokens,
         judge_completion_tokens=judge_completion_tokens,
+        judge_enabled=not args.disable_judge,
         prompt_price_per_1m=args.prompt_price_per_1m,
         completion_price_per_1m=args.completion_price_per_1m,
         judge_prompt_price_per_1m=args.judge_prompt_price_per_1m,
