@@ -601,7 +601,8 @@ def score_semantic_completeness(user_content: str) -> int:
     # Ingredients: check for "Ingredients:", "ingredients are:", "Source ingredients:"
     has_ingredients = bool(
         re.search(r"ingredients?\s*:", lower) or
-        re.search(r"source ingredients\s*:", lower)
+        re.search(r"source ingredients\s*:", lower) or
+        re.search(r"the ingredients are", lower)
     )
 
     # Steps: check for "Steps:", "Source steps:", "Here's how", step-numbered content
@@ -720,7 +721,11 @@ def run_quality_gate(master_path: Path, console: Any | None = None) -> dict:
             "metrics": {},
         }
 
-    # Re-run completeness validation on each kept row
+    # Re-run completeness validation on each kept row.
+    # Relevance and nontriviality are recomputed live (stored audit_scores may be stale).
+    constraints = load_constraints()
+    aliases_data = load_aliases()
+
     completeness_passes = 0
     nontrivial_passes = 0
     template_counts: Counter = Counter()
@@ -746,19 +751,39 @@ def run_quality_gate(master_path: Path, console: Any | None = None) -> dict:
             )
             detected_violations = row.get("detected_violations", [])
 
+            parsed = parse_assistant_response(assistant_msg)
+
             comp_passed, _ = check_completeness_validation(
-                assistant_msg, detected_violations
+                assistant_msg, detected_violations, parsed
             )
             if comp_passed:
                 completeness_passes += 1
 
             if scores.get("constraint_pass", 0) == 1:
                 constraint_passes += 1
-            if scores.get("nontriviality_score", 0) >= 0.5:
+
+            source_recipe = row.get("source_recipe", {})
+            restriction = (row.get("target_restrictions") or [""])[0]
+
+            relevance = score_relevance(
+                source_recipe.get("ingredients", []),
+                parsed["adapted_ingredients"],
+                restriction,
+                constraints,
+                aliases_data,
+            )
+            relevance_sum += relevance
+
+            nontriviality = score_nontriviality(
+                parsed["replacement_pairs"],
+                len(detected_violations),
+                source_recipe.get("steps", []),
+                parsed["adapted_steps"],
+            )
+            if nontriviality >= 0.5:
                 nontrivial_passes += 1
 
             template_counts[row.get("template_id", "?")] += 1
-            relevance_sum += scores.get("relevance_score", 0.0)
 
             progress.update(
                 task_id,
