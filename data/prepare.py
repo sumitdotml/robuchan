@@ -30,7 +30,9 @@ Block 2 — generate (Plan step 2):
 import argparse
 import hashlib
 import json
+import math
 import os
+import random
 import re
 import sys
 import time
@@ -38,6 +40,22 @@ from collections import Counter, defaultdict
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
+
+import kagglehub
+import pandas as pd
+from dotenv import load_dotenv
+from mistralai import Mistral
+from rich.console import Console
+from rich.progress import (
+    BarColumn, MofNCompleteColumn, Progress,
+    SpinnerColumn, TextColumn, TimeElapsedColumn,
+)
+from rich.table import Table
+
+load_dotenv()
+
+sys.path.insert(0, str(Path(__file__).parent))
+from audit_dataset import score_candidate, check_completeness_validation, should_trigger_candidate2
 
 # ---------------------------------------------------------------------------
 # Paths and constants
@@ -222,7 +240,6 @@ def _build_compiled_patterns(constraints: dict) -> dict[str, dict]:
 
 def parse_r_vector(s: Any) -> list[str]:
     """Parse R c("a", "b") format → Python list[str]. Handles nan and plain strings."""
-    import math
     if s is None:
         return []
     if isinstance(s, float) and math.isnan(s):
@@ -549,8 +566,6 @@ def call_mistral(client, messages: list[dict], model: str, max_retries: int = 3)
 
 def download_foodcom_data(data_dir: Path) -> Path:
     """Download Food.com dataset via kagglehub. Returns path to recipes CSV."""
-    import kagglehub
-
     # Check kagglehub cache before hitting the network
     cache_base = (
         Path.home() / ".cache" / "kagglehub" / "datasets"
@@ -589,9 +604,6 @@ def load_and_parse_recipes(
     csv_path: Path, constraints: dict, target_size: int, seed: int
 ) -> list[dict]:
     """Load Food.com CSV, parse, filter, assign constraints. Returns source pool list."""
-    import random
-    import pandas as pd
-
     rng = random.Random(seed)
 
     print(f"Loading {csv_path}...")
@@ -824,9 +836,6 @@ def run_constraints_coverage_check(source_pool: list[dict], constraints: dict) -
 
 
 def run_ingest(args):
-    from rich.console import Console
-    from rich.table import Table
-
     console = Console()
     console.rule("[bold blue]Block 1: Food.com Ingest + Source Curation")
 
@@ -969,12 +978,6 @@ def _build_master_row(
 
 
 def run_generate(args):
-    from rich.console import Console
-    from rich.progress import (
-        Progress, SpinnerColumn, TextColumn,
-        BarColumn, MofNCompleteColumn, TimeElapsedColumn,
-    )
-
     console = Console()
     console.rule("[bold blue]Block 2: Synthetic Generation + Audit")
 
@@ -983,7 +986,6 @@ def run_generate(args):
         console.print("[red]MISTRAL_API_KEY not set. Export it in your shell or .env.[/red]")
         sys.exit(1)
 
-    from mistralai import Mistral
     client = Mistral(api_key=api_key)
 
     constraints = load_constraints()
@@ -1006,10 +1008,6 @@ def run_generate(args):
 
     todo = [r for r in source_pool if r["source_recipe_id"] not in processed_ids]
     console.print(f"  Remaining: {len(todo):,} | Target: {args.target_pairs:,} kept pairs")
-
-    # Import scoring functions
-    sys.path.insert(0, str(Path(__file__).parent))
-    from audit_dataset import score_candidate, check_completeness_validation, should_trigger_candidate2
 
     kept_count = 0
     gen_total = 0

@@ -10,6 +10,7 @@ dependencies = [
     "marimo",
     "mistralai",
     "pandas",
+    "python-dotenv>=1.2.1",
     "rich",
     "wandb",
 ]
