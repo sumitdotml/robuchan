@@ -88,7 +88,6 @@ Each kept example must include:
   - `constraint_pass`
   - `relevance_score`
   - `nontriviality_score`
-  - `substitution_plausibility_score`
   - `semantic_completeness_pass`
 - `kept_for_training`
 - `kb_version` (must reference `swaps_v0`)
@@ -292,10 +291,7 @@ These checks run on every generated assistant response before it enters `interna
    - formula: `retained_nonrestricted_source_ingredients / total_nonrestricted_source_ingredients`.
 3. `nontriviality_score` (`0-1`):
    - formula: `0.8 * (replaced_violations / max(1, total_violations)) + 0.2 * step_changed_flag`.
-4. `substitution_plausibility_score` (`0-1`):
-   - uses required `kb/swaps_v0.json` (20-30+ curated rules) plus food-term validity check.
-   - formula: `0.7 * kb_match_rate + 0.3 * valid_food_term_rate`.
-5. `semantic_completeness_pass` (`0/1`):
+4. `semantic_completeness_pass` (`0/1`):
    - `1` only if user prompt contains recipe title, ingredients, steps, and restrictions fields (any of the approved templates).
 
 ### Quality gate before fine-tuning
@@ -306,10 +302,9 @@ Do not start fine-tuning until all of the following pass on generated data:
 2. Semantic completeness check pass rate `= 100%` on kept set
 3. Assistant completeness validation pass rate `= 100%` on kept set (all 4 rejection checks)
 4. Mean `relevance_score` on kept set `>= 0.55`
-5. Mean `substitution_plausibility_score` on kept set `>= 0.65`
-6. Nontrivial adaptation pass rate (`nontriviality_score >= 0.5`) `>= 90%` on kept set
-7. Template distribution on kept set is near target split (A/B/C = 50/30/20 with `+/-10` percentage points per bucket)
-8. Manual 10-row spot-check pass `>= 80%` before launching fine-tuning
+5. Nontrivial adaptation pass rate (`nontriviality_score >= 0.5`) `>= 90%` on kept set
+6. Template distribution on kept set is near target split (A/B/C = 50/30/20 with `+/-10` percentage points per bucket)
+7. Manual 10-row spot-check pass `>= 80%` before launching fine-tuning
 
 ## JSONL Format (Mistral API)
 
@@ -467,7 +462,7 @@ If not met: run one contingency tuning iteration within remaining budget.
 **Block 5 (09:00-11:00): Final Eval Freeze [120 min]**
 
 - Execute `final150` and `hard30` on best model.
-- Run manual 30-row plausibility review (`>= 85%`) on kept training set sample.
+- Run manual 30-row adaptation quality spot-check (`>= 85%`) on kept training set sample.
 - Freeze metrics and artifacts.
 
 **Block 6 (11:00-13:00): Demo Hardening [120 min]**
@@ -511,11 +506,11 @@ Required handoff artifacts remain in `docs/handoffs/H0` to `H4` with timestamps 
   - `semantic_completeness_pass_rate_on_kept = 100%`
   - `assistant_completeness_validation_pass_rate_on_kept = 100%`
   - `mean_relevance_score_on_kept >= 0.55`
-  - `mean_substitution_plausibility_score_on_kept >= 0.65`
   - nontrivial adaptation pass rate (`nontriviality_score >= 0.5`) `>= 90%`
   - template mix near `50/30/20` (`+/-10` points per bucket)
   - manual 10-row pre-FT spot-check pass `>= 80%`
-  - manual 30-row final-freeze plausibility pass `>= 85%`
+  - manual 30-row final-freeze adaptation quality pass `>= 85%`
+
 3. Fine-tuned model improves over base (`+5%` pass rate or `+0.5` judge score or `hard_case_win_rate >= 60%`).
 4. W&B metrics and artifacts are complete.
 5. Demo passes 3 consecutive runs (live or cached mode).

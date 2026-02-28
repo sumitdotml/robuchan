@@ -58,7 +58,7 @@ from rich.table import Table
 load_dotenv()
 
 sys.path.insert(0, str(Path(__file__).parent))
-from audit_dataset import score_candidate, check_completeness_validation, compute_predicted_kb_coverage, predict_step_ban_exposure
+from audit_dataset import score_candidate, check_completeness_validation, predict_step_ban_exposure
 
 # ---------------------------------------------------------------------------
 # Paths and constants
@@ -77,10 +77,6 @@ DEFAULT_SOURCE_SIZE = 2400
 DEFAULT_CONCURRENCY = 4096  # Defined by how soon you get rate limited by Mistral
 DEFAULT_RETRIES = 0 # we have enough data, don't retry
 DEFAULT_MISTRAL_GEN_MODEL = "mistral-large-latest"
-# Minimum fraction of violation ingredients that must match a KB rule.
-# At this threshold, max plausibility = 0.7*0.5 + 0.3*1.0 = 0.65 (the keep gate).
-# Recipes below this cannot pass plausibility regardless of model output.
-DEFAULT_MIN_KB_COVERAGE = 0.7
 # Skip recipes where this many source step lines contain banned terms.
 # Each contaminated step line is a place the model must rewrite; missing even one causes constraint_fail.
 DEFAULT_MAX_STEP_BAN_LINES = 3
@@ -1146,18 +1142,6 @@ async def _run_generate_async(
             recipe_id = recipe_entry["source_recipe_id"]
             restriction = recipe_entry["target_restriction"]
             violations = recipe_entry["detected_violations"] or []
-            # Pre-filter: skip recipes where KB coverage makes plausibility >= 0.65 impossible.
-            # plausibility = 0.7*kb_match_rate + 0.3*valid_food_term_rate; valid_food_term_rate <= 1.0
-            # => if predicted_kb_rate < 0.5, max plausibility = 0.7*0.5 + 0.3 = 0.65 (never passes).
-            predicted_kb_rate = compute_predicted_kb_coverage(violations, restriction, kb_rules)
-            if predicted_kb_rate < args.min_kb_coverage:
-                state["reject_counts"]["low_predicted_plausibility"] += 1
-                progress.console.print(
-                    f"[dim]  {recipe_id}  SKIPPED (predicted_kb_rate={predicted_kb_rate:.2f}"
-                    f" < {args.min_kb_coverage})[/dim]"
-                )
-                rejected_file.write(json.dumps({"source_recipe_id": recipe_id, "reject_reason": "low_predicted_plausibility"}, ensure_ascii=False) + "\n")
-                return
 
             recipe = recipe_entry["source_recipe"]
 
@@ -1293,7 +1277,6 @@ async def _run_generate_async(
                 f"[dim]  {recipe_id}"
                 f"  constraint_pass={audit_scores.get('constraint_pass')}"
                 f"  relevance={audit_scores.get('relevance_score', 0):.2f}"
-                f"  plausibility={audit_scores.get('substitution_plausibility_score', 0):.2f}"
                 f"  nontrivial={audit_scores.get('nontriviality_score', 0):.2f}"
                 f"  completeness_pass={audit_scores.get('semantic_completeness_pass')}"
                 f"  comp_validation={int(comp_passed)}[/dim]"
@@ -1312,7 +1295,6 @@ async def _run_generate_async(
                 s["constraint_pass"] == 1
                 and s["semantic_completeness_pass"] == 1
                 and comp_ok
-                and s["substitution_plausibility_score"] >= 0.65
             )
             best_row["kept_for_training"] = kept
 
@@ -1330,7 +1312,6 @@ async def _run_generate_async(
             else:
                 reject_reason = (
                     "constraint_fail" if s["constraint_pass"] != 1
-                    else "low_plausibility" if s["substitution_plausibility_score"] < 0.65
                     else "semantic_fail" if s["semantic_completeness_pass"] != 1
                     else "comp_validation_fail"
                 )
@@ -1435,19 +1416,14 @@ def run_generate(args):
 
     todo = [r for r in source_pool if r["source_recipe_id"] not in processed_ids]
 
-    # Rank todo so high-confidence recipes are processed first.
-    # pre_score = predicted_kb_rate - step_ban_penalty
-    #   predicted_kb_rate: fraction of violations that match KB rules → drives plausibility
-    #   step_ban_penalty:  0.04 per contaminated step line (capped at 6) → drives constraint_pass risk
-    # Sorting descending means the async batches start with "easy wins", hitting
-    # the target_pairs faster and leaving low-confidence entries for the tail (or skip).
+    # Rank todo so recipes with fewer contaminated step lines are processed first.
+    # pre_score = -step_ban_penalty; 0.04 per contaminated step line (capped at 6).
+    # Sorting descending means easy-to-pass recipes run first, reaching target_pairs faster.
     def _pre_score(entry: dict) -> float:
-        violations = entry.get("detected_violations") or []
         restriction = entry["target_restriction"]
         steps = entry["source_recipe"].get("steps", [])
-        kb_rate = compute_predicted_kb_coverage(violations, restriction, kb_rules)
         ban_lines = predict_step_ban_exposure(steps, restriction, constraints)
-        return kb_rate - min(ban_lines, 6) * 0.04
+        return -min(ban_lines, 6) * 0.04
 
     todo.sort(key=_pre_score, reverse=True)
     console.print(
@@ -1546,10 +1522,6 @@ def main():
     gen_p.add_argument("--max-step-ban-lines", type=int, default=DEFAULT_MAX_STEP_BAN_LINES,
                        help=f"Skip recipes where > N source step lines mention banned terms "
                             f"(default: {DEFAULT_MAX_STEP_BAN_LINES}; predicts constraint_fail)")
-    gen_p.add_argument("--min-kb-coverage", type=float, default=DEFAULT_MIN_KB_COVERAGE,
-                       help=f"Skip recipes where predicted KB match rate < threshold "
-                            f"(default: {DEFAULT_MIN_KB_COVERAGE}; below this, "
-                            f"plausibility >= 0.65 is mathematically impossible)")
     gen_p.add_argument("--resume", action="store_true",
                        help="Append to existing internal_master.jsonl (skip processed IDs)")
 

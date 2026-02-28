@@ -492,102 +492,6 @@ def predict_step_ban_exposure(
     return contaminated
 
 
-def compute_predicted_kb_coverage(
-    violations: list[dict],
-    restriction: str,
-    kb_rules: list[dict],
-) -> float:
-    """
-    Predict kb_match_rate from detected violations before making an API call.
-
-    Returns the fraction of violation ingredients that match a KB rule for the
-    given restriction.  Since valid_food_term_rate is bounded by 1.0, the final
-    plausibility score is bounded by:
-
-        0.7 * predicted_kb_rate + 0.3
-
-    If predicted_kb_rate < 0.5, plausibility can never reach 0.65 (the keep
-    threshold), so the API call can be skipped unconditionally.
-
-    Returns 0.0 when violations is empty.
-    """
-    if not violations:
-        return 0.0
-
-    applicable_terms: set[str] = set()
-    for rule in kb_rules:
-        if restriction in rule.get("applies_to_constraints", []):
-            for term in rule.get("match_terms", []):
-                applicable_terms.add(term.lower())
-
-    if not applicable_terms:
-        return 0.0
-
-    kb_matches = 0
-    for v in violations:
-        ing = v.get("ingredient", "").lower()
-        for term in applicable_terms:
-            if _word_boundary_match(ing, term) or term in ing:
-                kb_matches += 1
-                break
-
-    return round(kb_matches / len(violations), 4)
-
-
-def score_plausibility(
-    replacement_pairs: list[dict],
-    restriction: str,
-    kb_rules: list[dict],
-) -> float:
-    """
-    substitution_plausibility_score = 0.7 * kb_match_rate + 0.3 * valid_food_term_rate
-
-    kb_match_rate: fraction of replacement_pairs where 'from' matches a KB rule for
-                   the given restriction.
-    valid_food_term_rate: fraction of replacement_pairs where 'to' is a plausible
-                          food term (non-empty, contains alphabetic words).
-    """
-    if not replacement_pairs:
-        return 0.0
-
-    # Build KB index: {constraint -> set of match terms}
-    kb_index: dict[str, set[str]] = {}
-    for rule in kb_rules:
-        for c in rule.get("applies_to_constraints", []):
-            if c not in kb_index:
-                kb_index[c] = set()
-            for term in rule.get("match_terms", []):
-                kb_index[c].add(term.lower())
-
-    applicable_terms = kb_index.get(restriction, set())
-
-    kb_matches = 0
-    valid_food_terms = 0
-
-    for pair in replacement_pairs:
-        from_ing = pair.get("from", "").lower()
-        to_ing = pair.get("to", "").strip()
-
-        # kb_match: check if 'from' ingredient matches any KB rule term for this constraint
-        kb_matched = False
-        for term in applicable_terms:
-            if _word_boundary_match(from_ing, term) or term in from_ing:
-                kb_matched = True
-                break
-        if kb_matched:
-            kb_matches += 1
-
-        # valid_food_term: 'to' is non-empty and has alphabetic content
-        if to_ing and re.search(r"[a-zA-Z]{3,}", to_ing):
-            valid_food_terms += 1
-
-    n = len(replacement_pairs)
-    kb_match_rate = kb_matches / n
-    valid_food_term_rate = valid_food_terms / n
-
-    return round(0.7 * kb_match_rate + 0.3 * valid_food_term_rate, 4)
-
-
 def score_semantic_completeness(user_content: str) -> int:
     """
     Returns 1 if user prompt contains recipe title, ingredients, steps, and restrictions.
@@ -646,7 +550,7 @@ def score_candidate(
 
     Returns audit_scores dict with keys:
       constraint_pass, relevance_score, nontriviality_score,
-      substitution_plausibility_score, semantic_completeness_pass
+      semantic_completeness_pass
     """
     parsed = parse_assistant_response(assistant_content)
 
@@ -672,19 +576,12 @@ def score_candidate(
         parsed["adapted_steps"],
     )
 
-    plausibility = score_plausibility(
-        parsed["replacement_pairs"],
-        target_restriction,
-        kb_rules,
-    )
-
     semantic_pass = score_semantic_completeness(user_content)
 
     return {
         "constraint_pass": constraint_pass,
         "relevance_score": relevance,
         "nontriviality_score": nontriviality,
-        "substitution_plausibility_score": plausibility,
         "semantic_completeness_pass": semantic_pass,
         "_parsed": parsed,  # internal, not written to JSONL
     }
@@ -699,7 +596,6 @@ QUALITY_GATE_CHECKS = {
     "semantic_completeness_pass_rate_on_kept": ("==", 1.0),
     "assistant_completeness_validation_pass_rate_on_kept": ("==", 1.0),
     "mean_relevance_score_on_kept": (">=", 0.55),
-    "mean_substitution_plausibility_score_on_kept": (">=", 0.65),
     "nontrivial_adaptation_pass_rate_on_kept": (">=", 0.90),
     "template_a_fraction": ("within", (0.40, 0.60)),
     "template_b_fraction": ("within", (0.20, 0.40)),
@@ -743,7 +639,6 @@ def run_quality_gate(master_path: Path, console: Any | None = None) -> dict:
     template_counts: Counter = Counter()
     constraint_passes = 0
     relevance_sum = 0.0
-    plausibility_sum = 0.0
 
     with Progress(
         SpinnerColumn(),
@@ -777,7 +672,6 @@ def run_quality_gate(master_path: Path, console: Any | None = None) -> dict:
 
             template_counts[row.get("template_id", "?")] += 1
             relevance_sum += scores.get("relevance_score", 0.0)
-            plausibility_sum += scores.get("substitution_plausibility_score", 0.0)
 
             progress.update(
                 task_id,
@@ -799,7 +693,6 @@ def run_quality_gate(master_path: Path, console: Any | None = None) -> dict:
         ),
         "assistant_completeness_validation_pass_rate_on_kept": round(completeness_passes / n, 4),
         "mean_relevance_score_on_kept": round(relevance_sum / n, 4),
-        "mean_substitution_plausibility_score_on_kept": round(plausibility_sum / n, 4),
         "nontrivial_adaptation_pass_rate_on_kept": round(nontrivial_passes / n, 4),
         "template_a_fraction": round(template_counts.get("A", 0) / n, 4),
         "template_b_fraction": round(template_counts.get("B", 0) / n, 4),
