@@ -68,6 +68,41 @@ _FRACTION_RE = re.compile(r"^\d+[/\d]*$")
 _LEADING_NUM_RE = re.compile(r"^\d[\d/.,]*\s*")
 _UNIT_RE = None  # built lazily
 _PAREN_RE = re.compile(r"\([^)]*\)")
+_BOLD_RE = re.compile(r"\*\*([^*]+)\*\*")
+
+# Cache: restriction name -> compiled alternation pattern (or None if no banned terms).
+# Keyed only on restriction name; constraints content is fixed per program run.
+_CONSTRAINT_PATTERN_CACHE: dict[str, re.Pattern | None] = {}
+# Cache: lowercased known-false-positive phrases (same for all restrictions).
+_KNOWN_FPS_CACHE: list[str] | None = None
+
+
+def _get_constraint_pattern(restriction: str, constraints: dict) -> "re.Pattern | None":
+    if restriction not in _CONSTRAINT_PATTERN_CACHE:
+        banned = _get_banned_terms(restriction, constraints)
+        if not banned:
+            _CONSTRAINT_PATTERN_CACHE[restriction] = None
+        else:
+            # Longest terms first so multi-word phrases shadow sub-terms in alternation.
+            sorted_terms = sorted(banned, key=len, reverse=True)
+            _CONSTRAINT_PATTERN_CACHE[restriction] = re.compile(
+                r"\b(?:" + "|".join(re.escape(t.lower()) for t in sorted_terms) + r")\b"
+            )
+    return _CONSTRAINT_PATTERN_CACHE[restriction]
+
+
+def _get_known_fps(constraints: dict) -> list[str]:
+    global _KNOWN_FPS_CACHE
+    if _KNOWN_FPS_CACHE is None:
+        _KNOWN_FPS_CACHE = [
+            fp.lower()
+            for fp in constraints.get("_meta", {}).get("known_false_positives", [])
+        ]
+    return _KNOWN_FPS_CACHE
+
+
+def _strip_bold(s: str) -> str:
+    return _BOLD_RE.sub(r"\1", s).strip()
 
 
 def _build_unit_re(units: list[str]) -> re.Pattern:
@@ -89,13 +124,15 @@ def normalize_ingredient(text: str, aliases_data: dict) -> str:
     if _UNIT_RE is None:
         _UNIT_RE = _build_unit_re(aliases_data.get("units_to_strip", []))
 
-    s = text.lower().strip()
+    s = _strip_bold(text).lower().strip()
 
     # Remove parentheticals: "(minced)", "(about 2 lbs)"
     s = _PAREN_RE.sub("", s)
 
     # Strip leading quantity pattern: "2 tbsp", "1/2 cup", "400g", "2-3"
-    s = re.sub(r"^\d[\d/.,\-]*\s*", "", s)
+    # Also strip Unicode vulgar fractions (½, ¼, ¾, etc.)
+    s = re.sub(r"^[\u00BC-\u00BE\u2150-\u215E]?\s*\d[\d/.,\-]*\s*", "", s)
+    s = re.sub(r"^[\u00BC-\u00BE\u2150-\u215E]\s*", "", s)
 
     # Strip units
     s = _UNIT_RE.sub("", s)
@@ -175,21 +212,30 @@ def check_constraint_pass(
     Uses word-boundary matching after lowercasing.
     Known false positives (butternut squash, cream of tartar, eggplant) are skipped.
     """
-    known_fps = set(constraints.get("_meta", {}).get("known_false_positives", []))
-    banned = _get_banned_terms(restriction, constraints)
+    pattern = _get_constraint_pattern(restriction, constraints)
+    if pattern is None:
+        return 1
+
     combined = (adapted_ingredients_text + " " + adapted_steps_text).lower()
 
-    for term in banned:
-        if _word_boundary_match(combined, term):
-            # Check false positives: if any known FP phrase contains this term and
-            # the full FP phrase is present, skip it.
-            is_fp = False
-            for fp in known_fps:
-                if term in fp.lower() and fp.lower() in combined:
-                    is_fp = True
-                    break
-            if not is_fp:
-                return 0
+    # Pre-filter known FP phrases to only those actually present in combined —
+    # avoids redundant substring scans inside the per-match loop.
+    known_fps = _get_known_fps(constraints)
+    active_fps = [fp for fp in known_fps if fp in combined]
+
+    # Fast path: no FP phrases present → any match is a violation.
+    if not active_fps:
+        return 0 if pattern.search(combined) else 1
+
+    # Slow path: at least one FP phrase is present; must check each match.
+    # Run the banned-terms pattern against the (tiny) FP phrase strings to find
+    # which terms they cover → O(1) set lookup per match instead of a linear scan.
+    protected_terms = frozenset(
+        m.group(0) for fp in active_fps for m in pattern.finditer(fp)
+    )
+    for match in pattern.finditer(combined):
+        if match.group(0) not in protected_terms:
+            return 0
     return 1
 
 
@@ -266,19 +312,65 @@ def parse_assistant_response(content: str) -> dict:
     }
 
     # Parse replacement pairs from Substitution Plan
+    # Handles three formats the model may produce:
+    #   1. Arrow list:  "**X → Y**: reason" or "X -> Y (reason)"
+    #   2. Markdown table with Original/Substitute columns
+    #   3. Prose narrative: "replace X with Y" / "X is replaced with Y"
     sub_text = result["substitution_plan_text"]
-    for line in sub_text.splitlines():
-        line = line.strip().lstrip("-•*").strip()
+    lines = sub_text.splitlines()
+
+    # --- Format 1: arrow list ---
+    for line in lines:
+        line = line.strip().lstrip("-•*").strip().replace("**", "")
         if not line:
             continue
-        # Match: "item -> replacement (reason)" or "item -> replacement"
-        m = re.match(r"^(.+?)\s*->\s*(.+?)(?:\s+\((.+)\))?$", line)
+        m = re.match(r"^(.+?)\s*(?:->|→)\s*(.+?)(?:\s*:\s*(.+)|\s+\((.+)\))?$", line)
         if m:
             result["replacement_pairs"].append({
                 "from": m.group(1).strip(),
                 "to": m.group(2).strip(),
-                "reason": m.group(3).strip() if m.group(3) else "",
+                "reason": (m.group(3) or m.group(4) or "").strip(),
             })
+
+    # --- Format 2: markdown table ---
+    # Find header row to locate "original" and "substitute" column indices
+    if not result["replacement_pairs"]:
+        header_idx = None
+        orig_col = sub_col = -1
+        for i, line in enumerate(lines):
+            if "|" in line and re.search(r"original|ingredient", line, re.IGNORECASE):
+                cells = [c.strip().replace("**", "").lower() for c in line.split("|")]
+                for j, cell in enumerate(cells):
+                    if re.search(r"original|ingredient", cell):
+                        orig_col = j
+                    if re.search(r"substitut|replacement|swap", cell):
+                        sub_col = j
+                if orig_col >= 0 and sub_col >= 0:
+                    header_idx = i
+                    break
+        if header_idx is not None:
+            for line in lines[header_idx + 2:]:  # skip separator row
+                if "|" not in line:
+                    break
+                cells = [c.strip().replace("**", "") for c in line.split("|")]
+                if max(orig_col, sub_col) < len(cells):
+                    frm = cells[orig_col].strip()
+                    to = cells[sub_col].strip()
+                    if frm and to and not re.match(r"^[-:]+$", frm):
+                        result["replacement_pairs"].append({"from": frm, "to": to, "reason": ""})
+
+    # --- Format 3: prose "replace X with Y" / "X replaced with Y" ---
+    if not result["replacement_pairs"]:
+        prose = sub_text.replace("**", "")
+        for m in re.finditer(
+            r"replace(?:d)?\s+([^,;\n]+?)\s+with\s+([^,;\n.]+)",
+            prose,
+            re.IGNORECASE,
+        ):
+            frm = m.group(1).strip().lstrip("the ").strip()
+            to = m.group(2).strip()
+            if frm and to:
+                result["replacement_pairs"].append({"from": frm, "to": to, "reason": ""})
 
     # Parse adapted ingredients (list items)
     ing_text = result["adapted_ingredients_text"]
@@ -431,7 +523,7 @@ def score_nontriviality(
                         + 0.2 * step_changed_flag
     """
     replaced = len([p for p in replacement_pairs if p.get("to", "").strip()])
-    violation_rate = replaced / max(1, total_violations)
+    violation_rate = min(1.0, replaced / max(1, total_violations))
 
     # step_changed_flag: 1 if adapted steps differ meaningfully from source steps
     if not source_steps or not adapted_steps:
@@ -609,10 +701,6 @@ def run_quality_gate(master_path: Path, console: Any | None = None) -> dict:
     from rich.console import Console
     if console is None:
         console = Console()
-
-    constraints = load_constraints()
-    aliases_data = load_aliases()
-    kb_rules = load_kb()
 
     rows = []
     with open(master_path) as f:
@@ -878,7 +966,7 @@ def cmd_export(args):
         seed=args.seed,
         console=console,
     )
-    console.print(f"[green]Export complete[/green]")
+    console.print("[green]Export complete[/green]")
     console.print(f"  Total kept:  {result['total_kept']}")
     console.print(f"  Train rows:  {result['train_rows']}  → {result['train_path']}")
     console.print(f"  Valid rows:  {result['valid_rows']}  → {result['valid_path']}")
@@ -889,7 +977,7 @@ def main():
     parser.add_argument("--master", default=str(INTERNAL_MASTER_PATH), help="Path to internal_master.jsonl")
     subparsers = parser.add_subparsers(dest="cmd", required=True)
 
-    gate_parser = subparsers.add_parser("gate", help="Run quality gate checks")
+    subparsers.add_parser("gate", help="Run quality gate checks")
 
     export_parser = subparsers.add_parser("export", help="Export to train/valid JSONL")
     export_parser.add_argument("--valid-fraction", type=float, default=0.1)
