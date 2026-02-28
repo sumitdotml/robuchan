@@ -58,6 +58,7 @@ from audit_dataset import (
     score_candidate,
     check_completeness_validation,
     predict_step_ban_exposure,
+    predict_title_ban_exposure,
 )
 
 load_dotenv()
@@ -83,7 +84,18 @@ DEFAULT_RETRIES = 0 # we have enough data, don't retry
 DEFAULT_MISTRAL_GEN_MODEL = "mistral-large-latest"
 # Skip recipes where this many source step lines contain banned terms.
 # Each contaminated step line is a place the model must rewrite; missing even one causes constraint_fail.
-DEFAULT_MAX_STEP_BAN_LINES = 3
+DEFAULT_MAX_STEP_BAN_LINES = 1
+# Skip recipes with more than this many ingredient violations.
+# Each violation requires a correct substitution; missing any one causes constraint_fail.
+DEFAULT_MAX_INGREDIENT_VIOLATIONS = 2
+# Skip recipes where more than this fraction of ingredients are banned.
+# High fractions mean the dish is structurally incompatible with the restriction.
+DEFAULT_MAX_VIOLATION_FRACTION = 0.33
+# Skip recipes where the title contains a banned term AND at least one source step
+# line is also contaminated. Title identity + step contamination is a compound
+# failure signal: the model must rewrite step references while being cued by the
+# dish name to keep them — consistently causes constraint_fail.
+DEFAULT_SKIP_TITLE_STEP_COMPOUND = True
 API_TIMEOUT_SECS = 240  # Max seconds per Mistral call before treating as a hung connection
 KAGGLE_DATASET = "irkaal/foodcom-recipes-and-reviews"
 
@@ -1156,6 +1168,46 @@ async def _run_generate_async(
                 rejected_file.write(json.dumps({"source_recipe_id": recipe_id, "reject_reason": "high_step_contamination"}, ensure_ascii=False) + "\n")
                 return
 
+            # Pre-filter: title identity + step contamination compound signal.
+            # When the recipe title contains a banned term AND at least one step
+            # line does too, the model is cued by the dish name while also needing
+            # to rewrite step references — a combination that reliably causes
+            # constraint_fail.  Only applied when step_ban_lines >= 1 so it does
+            # not reject title-only contamination (where the steps are clean).
+            if args.skip_title_step_compound and step_ban_lines >= 1:
+                title_ban = predict_title_ban_exposure(recipe["title"], restriction, constraints)
+                if title_ban >= 1:
+                    state["reject_counts"]["title_step_compound"] += 1
+                    progress.console.print(
+                        f"[dim]  {recipe_id}  SKIPPED (title_ban={title_ban}"
+                        f"  step_ban_lines={step_ban_lines}  compound)[/dim]"
+                    )
+                    rejected_file.write(json.dumps({"source_recipe_id": recipe_id, "reject_reason": "title_step_compound"}, ensure_ascii=False) + "\n")
+                    return
+
+            # Pre-filter: too many ingredient violations → model must make N substitutions
+            # and missing any one causes constraint_fail.
+            if len(violations) > args.max_ingredient_violations:
+                state["reject_counts"]["high_ingredient_violations"] += 1
+                progress.console.print(
+                    f"[dim]  {recipe_id}  SKIPPED (ingredient_violations={len(violations)}"
+                    f" > {args.max_ingredient_violations})[/dim]"
+                )
+                rejected_file.write(json.dumps({"source_recipe_id": recipe_id, "reject_reason": "high_ingredient_violations"}, ensure_ascii=False) + "\n")
+                return
+
+            # Pre-filter: too high a fraction of ingredients are banned → dish is
+            # structurally incompatible with the restriction.
+            violation_fraction = len(violations) / max(1, len(recipe["ingredients"]))
+            if violation_fraction > args.max_violation_fraction:
+                state["reject_counts"]["high_violation_fraction"] += 1
+                progress.console.print(
+                    f"[dim]  {recipe_id}  SKIPPED (violation_fraction={violation_fraction:.2f}"
+                    f" > {args.max_violation_fraction})[/dim]"
+                )
+                rejected_file.write(json.dumps({"source_recipe_id": recipe_id, "reject_reason": "high_violation_fraction"}, ensure_ascii=False) + "\n")
+                return
+
             cuisine = recipe_entry.get("cuisine", "International")
             flavor_notes = recipe_entry.get("flavor_notes", [])
             template_id = recipe_entry["template_id"]
@@ -1504,6 +1556,20 @@ def main():
     gen_p.add_argument("--max-step-ban-lines", type=int, default=DEFAULT_MAX_STEP_BAN_LINES,
                        help=f"Skip recipes where > N source step lines mention banned terms "
                             f"(default: {DEFAULT_MAX_STEP_BAN_LINES}; predicts constraint_fail)")
+    gen_p.add_argument("--max-ingredient-violations", type=int, default=DEFAULT_MAX_INGREDIENT_VIOLATIONS,
+                       help=f"Skip recipes with more than N ingredient violations "
+                            f"(default: {DEFAULT_MAX_INGREDIENT_VIOLATIONS}; predicts constraint_fail)")
+    gen_p.add_argument("--max-violation-fraction", type=float, default=DEFAULT_MAX_VIOLATION_FRACTION,
+                       help=f"Skip recipes where > this fraction of ingredients are banned "
+                            f"(default: {DEFAULT_MAX_VIOLATION_FRACTION}; predicts constraint_fail)")
+    gen_p.add_argument("--skip-title-step-compound", action="store_true",
+                       default=DEFAULT_SKIP_TITLE_STEP_COMPOUND,
+                       help="Skip recipes where the title contains a banned term AND "
+                            "at least one source step line is also contaminated "
+                            f"(default: {DEFAULT_SKIP_TITLE_STEP_COMPOUND})")
+    gen_p.add_argument("--no-skip-title-step-compound", dest="skip_title_step_compound",
+                       action="store_false",
+                       help="Disable the title+step compound pre-filter")
     gen_p.add_argument("--resume", action="store_true",
                        help="Append to existing internal_master.jsonl (skip processed IDs)")
 
