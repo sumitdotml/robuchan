@@ -58,7 +58,7 @@ from rich.table import Table
 load_dotenv()
 
 sys.path.insert(0, str(Path(__file__).parent))
-from audit_dataset import score_candidate, check_completeness_validation, should_trigger_candidate2
+from audit_dataset import score_candidate, check_completeness_validation, compute_predicted_kb_coverage
 
 # ---------------------------------------------------------------------------
 # Paths and constants
@@ -73,10 +73,14 @@ REJECTED_LOG_PATH   = ROOT / "data" / "rejected_log.jsonl"
 ARTIFACTS_DIR = ROOT / "artifacts"
 KB_VERSION = "swaps_v0_2026-02-28"
 DEFAULT_TARGET_PAIRS = 1200
-DEFAULT_SOURCE_SIZE = 2000
+DEFAULT_SOURCE_SIZE = 2400
 DEFAULT_CONCURRENCY = 4096  # Defined by how soon you get rate limited by Mistral
 DEFAULT_RETRIES = 0 # we have enough data, don't retry
 DEFAULT_MISTRAL_GEN_MODEL = "mistral-large-latest"
+# Minimum fraction of violation ingredients that must match a KB rule.
+# At this threshold, max plausibility = 0.7*0.5 + 0.3*1.0 = 0.65 (the keep gate).
+# Recipes below this cannot pass plausibility regardless of model output.
+DEFAULT_MIN_KB_COVERAGE = 0.5
 API_TIMEOUT_SECS = 240  # Max seconds per Mistral call before treating as a hung connection
 KAGGLE_DATASET = "irkaal/foodcom-recipes-and-reviews"
 
@@ -1057,7 +1061,6 @@ def _build_master_row(
     template_id: str,
     richness_tier: str,
     completeness_ok: bool,
-    candidate_num: int,
 ) -> dict:
     return {
         "source_recipe_id": recipe_id,
@@ -1071,7 +1074,6 @@ def _build_master_row(
         "audit_scores": audit_scores,
         "kept_for_training": False,  # finalized by caller
         "kb_version": KB_VERSION,
-        "generation_candidate_num": candidate_num,
         "_completeness_ok": completeness_ok,  # internal flag, removed before write
     }
 
@@ -1096,7 +1098,6 @@ async def _run_generate_async(
     state: dict = {
         "kept_count": 0,
         "gen_total": 0,
-        "candidate2_count": 0,
         "reject_counts": Counter(),
         "accept_counts": Counter(),
     }
@@ -1140,19 +1141,30 @@ async def _run_generate_async(
                 return
 
             recipe_id = recipe_entry["source_recipe_id"]
-            recipe = recipe_entry["source_recipe"]
             restriction = recipe_entry["target_restriction"]
             violations = recipe_entry["detected_violations"] or []
+            # Pre-filter: skip recipes where KB coverage makes plausibility >= 0.65 impossible.
+            # plausibility = 0.7*kb_match_rate + 0.3*valid_food_term_rate; valid_food_term_rate <= 1.0
+            # => if predicted_kb_rate < 0.5, max plausibility = 0.7*0.5 + 0.3 = 0.65 (never passes).
+            predicted_kb_rate = compute_predicted_kb_coverage(violations, restriction, kb_rules)
+            if predicted_kb_rate < args.min_kb_coverage:
+                state["reject_counts"]["low_predicted_plausibility"] += 1
+                progress.console.print(
+                    f"[dim]  {recipe_id}  SKIPPED (predicted_kb_rate={predicted_kb_rate:.2f}"
+                    f" < {args.min_kb_coverage})[/dim]"
+                )
+                return
+
+            recipe = recipe_entry["source_recipe"]
             cuisine = recipe_entry.get("cuisine", "International")
             flavor_notes = recipe_entry.get("flavor_notes", [])
             template_id = recipe_entry["template_id"]
             richness_tier = assign_richness_tier(recipe_id, restriction)
             max_tokens = MAX_TOKENS_BY_TIER[richness_tier]
-
-            system_content = SYSTEM_PROMPTS[richness_tier]
             user_content = render_user_prompt(
                 template_id, recipe, restriction, cuisine, flavor_notes
             )
+            system_content = SYSTEM_PROMPTS[richness_tier]
             prompt_messages = [
                 {"role": "system", "content": system_content},
                 {"role": "user", "content": user_content},
@@ -1161,142 +1173,116 @@ async def _run_generate_async(
             progress.console.print(
                 f"[dim]→ START  {recipe_id}  restriction={restriction}"
                 f"  tier={richness_tier}  max_tokens={max_tokens}"
-                f"  template={template_id}  violations={len(violations)}[/dim]"
+                f"  template={template_id}  violations={len(violations)}"
+                f"  predicted_kb_rate={predicted_kb_rate:.2f}[/dim]"
             )
 
-            best_row: dict | None = None
+            # Single candidate — drop recipe on failure
+            if stop_event.is_set():
+                return
 
-            for candidate_num in range(1, 3):
+            # Semaphore caps concurrent in-flight API calls.
+            # The await inside holds the slot until the HTTP response returns,
+            # letting other coroutines proceed with CPU work in between.
+            progress.console.print(
+                f"[dim]  {recipe_id}  waiting for semaphore slot…[/dim]"
+            )
+            async with sem:
                 if stop_event.is_set():
-                    break
-
-                # Semaphore caps concurrent in-flight API calls.
-                # The await inside holds the slot until the HTTP response returns,
-                # letting other coroutines proceed with CPU work in between.
+                    return
+                state["gen_total"] += 1
                 progress.console.print(
-                    f"[dim]  {recipe_id}  candidate={candidate_num}  waiting for semaphore slot…[/dim]"
+                    f"[cyan]  {recipe_id}"
+                    f"  calling {args.model}"
+                    f"  (gen_total={state['gen_total']})[/cyan]"
                 )
-                async with sem:
-                    if stop_event.is_set():
-                        break
-                    state["gen_total"] += 1
-                    if candidate_num == 2:
-                        state["candidate2_count"] += 1
-                    progress.console.print(
-                        f"[cyan]  {recipe_id}  candidate={candidate_num}"
-                        f"  calling {args.model}"
-                        f"  (gen_total={state['gen_total']})[/cyan]"
-                    )
-                    t0 = time.monotonic()
-                    try:
-                        assistant_content = await asyncio.wait_for(
-                            call_mistral_async(
-                                client, prompt_messages, args.model,
-                                max_tokens=max_tokens,
-                                max_retries=args.num_retries,
-                            ),
-                            timeout=API_TIMEOUT_SECS,
-                        )
-                    except Exception as e:
-                        elapsed = time.monotonic() - t0
-                        state["reject_counts"]["api_error"] += 1
-                        total_kept = already_kept_count + state["kept_count"]
-                        progress.console.print(
-                            f"[red]  {recipe_id}  candidate={candidate_num}"
-                            f"  API ERROR after {elapsed:.1f}s"
-                            f"  (gen:{state['gen_total']} kept:{total_kept}): {e}[/red]"
-                        )
-                        progress.update(
-                            task_id,
-                            description=(
-                                f"gen:{state['gen_total']} "
-                                f"kept:{total_kept}/{args.target_pairs} "
-                                f"avail:{len(todo)} "
-                                f"err:{state['reject_counts']['api_error']}"
-                            ),
-                        )
-                        return
-                    elapsed = time.monotonic() - t0
-                    if assistant_content is None:
-                        state["reject_counts"]["api_error"] += 1
-                        progress.console.print(
-                            f"[red]  {recipe_id}  candidate={candidate_num}"
-                            f"  API returned None content after {elapsed:.1f}s[/red]"
-                        )
-                        continue
-                    progress.console.print(
-                        f"[green]  {recipe_id}  candidate={candidate_num}"
-                        f"  response received in {elapsed:.1f}s"
-                        f"  chars={len(assistant_content)}[/green]"
-                    )
-
-                # CPU-bound scoring runs outside the semaphore so the slot is
-                # freed for another recipe to start its API call immediately.
-                progress.console.print(
-                    f"[dim]  {recipe_id}  candidate={candidate_num}  scoring…[/dim]"
-                )
+                t0 = time.monotonic()
                 try:
-                    scores_raw = score_candidate(
-                        assistant_content=assistant_content,
-                        user_content=user_content,
-                        source_ingredients=recipe["ingredients"],
-                        source_steps=recipe["steps"],
-                        detected_violations=violations,
-                        target_restriction=restriction,
-                        constraints=constraints,
-                        kb_rules=kb_rules,
-                        aliases_data=aliases_data,
+                    assistant_content = await asyncio.wait_for(
+                        call_mistral_async(
+                            client, prompt_messages, args.model,
+                            max_tokens=max_tokens,
+                            max_retries=args.num_retries,
+                        ),
+                        timeout=API_TIMEOUT_SECS,
                     )
-                    parsed = scores_raw.pop("_parsed")
-                    audit_scores = {k: v for k, v in scores_raw.items()}
-                    comp_passed, _ = check_completeness_validation(
-                        assistant_content, violations, parsed
-                    )
-                except Exception as score_err:
-                    state["reject_counts"]["scoring_error"] += 1
+                except Exception as e:
+                    elapsed = time.monotonic() - t0
+                    state["reject_counts"]["api_error"] += 1
+                    total_kept = already_kept_count + state["kept_count"]
                     progress.console.print(
-                        f"[red]  {recipe_id}  candidate={candidate_num}"
-                        f"  SCORING ERROR — {type(score_err).__name__}: {score_err}[/red]"
+                        f"[red]  {recipe_id}"
+                        f"  API ERROR after {elapsed:.1f}s"
+                        f"  (gen:{state['gen_total']} kept:{total_kept}): {e}[/red]"
+                    )
+                    progress.update(
+                        task_id,
+                        description=(
+                            f"gen:{state['gen_total']} "
+                            f"kept:{total_kept}/{args.target_pairs} "
+                            f"avail:{len(todo)} "
+                            f"err:{state['reject_counts']['api_error']}"
+                        ),
                     )
                     return
-
-                progress.console.print(
-                    f"[dim]  {recipe_id}  candidate={candidate_num}"
-                    f"  constraint_pass={audit_scores.get('constraint_pass')}"
-                    f"  relevance={audit_scores.get('relevance_score', 0):.2f}"
-                    f"  plausibility={audit_scores.get('substitution_plausibility_score', 0):.2f}"
-                    f"  nontrivial={audit_scores.get('nontriviality_score', 0):.2f}"
-                    f"  completeness_pass={audit_scores.get('semantic_completeness_pass')}"
-                    f"  comp_validation={int(comp_passed)}[/dim]"
-                )
-
-                # Adaptive trigger: try candidate 2 on first failure
-                if candidate_num == 1 and should_trigger_candidate2(audit_scores):
-                    state["reject_counts"]["trigger_candidate2"] += 1
+                elapsed = time.monotonic() - t0
+                if assistant_content is None:
+                    state["reject_counts"]["api_error"] += 1
                     progress.console.print(
-                        f"[yellow]  {recipe_id}  attempt=1  triggering candidate 2"
-                        f"  (trigger_candidate2 total={state['reject_counts']['trigger_candidate2']})[/yellow]"
+                        f"[red]  {recipe_id}  API returned None content after {elapsed:.1f}s[/red]"
                     )
-                    best_row = _build_master_row(
-                        recipe_id, recipe, restriction, violations,
-                        parsed, prompt_messages, audit_scores,
-                        template_id, richness_tier, comp_passed, candidate_num,
-                    )
-                    continue  # re-enter loop → candidate_num == 2
-
-                best_row = _build_master_row(
-                    recipe_id, recipe, restriction, violations,
-                    parsed, prompt_messages, audit_scores,
-                    template_id, richness_tier, comp_passed, candidate_num,
-                )
-                break
-
-            if best_row is None:
-                state["reject_counts"]["no_candidate"] += 1
+                    return
                 progress.console.print(
-                    f"[red]  {recipe_id}  no usable candidate — skipping[/red]"
+                    f"[green]  {recipe_id}"
+                    f"  response received in {elapsed:.1f}s"
+                    f"  chars={len(assistant_content)}[/green]"
+                )
+
+            # CPU-bound scoring runs outside the semaphore so the slot is
+            # freed for another recipe to start its API call immediately.
+            progress.console.print(
+                f"[dim]  {recipe_id}  scoring…[/dim]"
+            )
+            try:
+                scores_raw = score_candidate(
+                    assistant_content=assistant_content,
+                    user_content=user_content,
+                    source_ingredients=recipe["ingredients"],
+                    source_steps=recipe["steps"],
+                    detected_violations=violations,
+                    target_restriction=restriction,
+                    constraints=constraints,
+                    kb_rules=kb_rules,
+                    aliases_data=aliases_data,
+                )
+                parsed = scores_raw.pop("_parsed")
+                audit_scores = {k: v for k, v in scores_raw.items()}
+                comp_passed, _ = check_completeness_validation(
+                    assistant_content, violations, parsed
+                )
+            except Exception as score_err:
+                state["reject_counts"]["scoring_error"] += 1
+                progress.console.print(
+                    f"[red]  {recipe_id}"
+                    f"  SCORING ERROR — {type(score_err).__name__}: {score_err}[/red]"
                 )
                 return
+
+            progress.console.print(
+                f"[dim]  {recipe_id}"
+                f"  constraint_pass={audit_scores.get('constraint_pass')}"
+                f"  relevance={audit_scores.get('relevance_score', 0):.2f}"
+                f"  plausibility={audit_scores.get('substitution_plausibility_score', 0):.2f}"
+                f"  nontrivial={audit_scores.get('nontriviality_score', 0):.2f}"
+                f"  completeness_pass={audit_scores.get('semantic_completeness_pass')}"
+                f"  comp_validation={int(comp_passed)}[/dim]"
+            )
+
+            best_row = _build_master_row(
+                recipe_id, recipe, restriction, violations,
+                parsed, prompt_messages, audit_scores,
+                template_id, richness_tier, comp_passed,
+            )
 
             # Finalize kept_for_training flag
             s = best_row["audit_scores"]
@@ -1305,6 +1291,7 @@ async def _run_generate_async(
                 s["constraint_pass"] == 1
                 and s["semantic_completeness_pass"] == 1
                 and comp_ok
+                and s["substitution_plausibility_score"] >= 0.65
             )
             best_row["kept_for_training"] = kept
 
@@ -1312,8 +1299,7 @@ async def _run_generate_async(
             if kept:
                 state["kept_count"] += 1
                 total_kept += 1
-                cand_key = f"candidate_{best_row['generation_candidate_num']}"
-                state["accept_counts"][cand_key] += 1
+                state["accept_counts"]["kept"] += 1
                 if total_kept >= args.target_pairs:
                     stop_event.set()
                 progress.console.print(
@@ -1323,6 +1309,7 @@ async def _run_generate_async(
             else:
                 reject_reason = (
                     "constraint_fail" if s["constraint_pass"] != 1
+                    else "low_plausibility" if s["substitution_plausibility_score"] < 0.65
                     else "semantic_fail" if s["semantic_completeness_pass"] != 1
                     else "comp_validation_fail"
                 )
@@ -1382,7 +1369,6 @@ async def _run_generate_async(
             f"[bold]all batches complete — gen_total={state['gen_total']}"
             f"  kept={state['kept_count']}"
             f"  api_errors={state['reject_counts'].get('api_error', 0)}"
-            f"  candidate2={state['candidate2_count']}"
             f"  accepts={dict(state['accept_counts'])}"
             f"  rejects={dict(state['reject_counts'])}"
             f"  unhandled_exceptions={len(all_exceptions)}[/bold]"
@@ -1448,7 +1434,6 @@ def run_generate(args):
     session_kept = state["kept_count"]
     total_kept = already_kept_count + session_kept
     gen_total = state["gen_total"]
-    candidate2_count = state["candidate2_count"]
     reject_counts = state["reject_counts"]
     accept_counts = state["accept_counts"]
 
@@ -1462,8 +1447,6 @@ def run_generate(args):
         "kept_pairs_this_session": session_kept,
         "kept_pairs_from_resume": already_kept_count,
         "total_generated": gen_total,
-        "candidate2_triggered": candidate2_count,
-        "adaptive_rate": round(candidate2_count / max(1, gen_total), 4),
         "accept_counts": dict(accept_counts),
         "reject_counts": dict(reject_counts),
         "concurrency": args.concurrency,
@@ -1479,7 +1462,6 @@ def run_generate(args):
     console.print(f"  Kept pairs:   [cyan]{total_kept:,}[/cyan] / {args.target_pairs:,}"
                   + (f"  ({already_kept_count:,} from previous runs)" if already_kept_count else ""))
     console.print(f"  Generated:    [cyan]{gen_total:,}[/cyan] total candidates this session")
-    console.print(f"  Candidate 2:  [cyan]{candidate2_count:,}[/cyan] triggered")
     console.print(f"  Accepts:      [cyan]{dict(accept_counts)}[/cyan]")
     console.print(f"  Concurrency:  [cyan]{args.concurrency}[/cyan] parallel API slots")
     console.print(f"  Master JSONL: [cyan]{INTERNAL_MASTER_PATH}[/cyan]")
@@ -1520,6 +1502,10 @@ def main():
                        help=f"Max parallel API calls (default: {DEFAULT_CONCURRENCY})")
     gen_p.add_argument("--num-retries", type=int, default=DEFAULT_RETRIES,
                        help="Max retries per API call on transient errors (default: {DEFAULT_RETRIES})")
+    gen_p.add_argument("--min-kb-coverage", type=float, default=DEFAULT_MIN_KB_COVERAGE,
+                       help=f"Skip recipes where predicted KB match rate < threshold "
+                            f"(default: {DEFAULT_MIN_KB_COVERAGE}; below this, "
+                            f"plausibility >= 0.65 is mathematically impossible)")
     gen_p.add_argument("--resume", action="store_true",
                        help="Append to existing internal_master.jsonl (skip processed IDs)")
 

@@ -3,7 +3,7 @@
 ## Summary
 
 - Primary strategy: use **Food.com recipes as source pool**, generate synthetic dietary adaptations with `mistral-large-latest`, and fine-tune `mistral-small-latest` on audited outputs.
-- Target dataset for training: **1200 final filtered pairs** from approximately **1200-2400 generated candidates** (adaptive candidate policy).
+- Target dataset for training: **1200 final filtered pairs**. Single candidate per recipe; failed candidates are dropped.
 - Prompt policy: keep semantic payload constant while varying user phrasing/templates to avoid rigid-format overfitting.
 - Evaluation structure remains: **quick50 + final150 + hard30**.
 - Work is split across two separate Mistral workspaces due billing/access constraints:
@@ -29,7 +29,7 @@ Local Machine                       Mistral API                          W&B
 ## Locked Decisions
 
 1. Primary data strategy: **Food.com + synthetic generation**.
-2. Generation policy: **adaptive candidates**: generate candidate 1 for all rows; generate candidate 2 only when candidate 1 fails quality triggers.
+2. Generation policy: **single candidate per recipe**: generate one candidate; drop the recipe if it fails quality triggers.
 3. Synthetic target: **1200 final filtered pairs**.
 4. Fallback policy: **pause if Food.com ingest fails**.
 5. Command style: `uv`-based workflow in docs and scripts.
@@ -49,7 +49,7 @@ Local Machine                       Mistral API                          W&B
 ## Budget Guardrails
 
 - Available credits: `$15` per workspace (not pooled).
-- Synthetic generation estimate (adaptive `1200-2400` generations): **~$6.60-$13.20** total (based on updated token assumptions: ~330 input, ~700 output for richer prompts/responses).
+- Synthetic generation estimate (~1200-2000 generations): **~$3.30-$11.00** total (based on updated token assumptions: ~330 input, ~700 output for richer prompts/responses).
 - Budget routing:
   - Workspace B should carry synthetic generation spend.
   - Workspace A should reserve budget for fine-tune + eval + demo.
@@ -93,17 +93,11 @@ Each kept example must include:
 - `kept_for_training`
 - `kb_version` (must reference `swaps_v0`)
 
-Optional (lightweight ops metadata):
-
-- `generation_attempt_count` (`1` or `2`)
-
 ### Candidate-generation contract
 
-- Generate candidate 1 for every source recipe.
-- Trigger candidate 2 only if candidate 1 fails:
-  - `constraint_pass == 0`, or
-  - `substitution_plausibility_score < 0.65`.
-- Keep one retained candidate per source/constraint pair using deterministic score-first ranking.
+- Generate one candidate per source recipe.
+- If the candidate fails any quality trigger, drop the recipe and move to the next source.
+- Keep one passing candidate per source/constraint pair.
 
 ### Required artifacts
 
@@ -128,15 +122,14 @@ Selection rules for candidate source recipes:
 
 1. Ingest and normalize Food.com source recipes.
 2. Assign target dietary constraint per selected recipe.
-3. Generate candidate 1 using `mistral-large-latest`.
-4. Score candidate 1 with deterministic audit rules.
-5. Generate candidate 2 only if adaptive trigger fires.
-6. Keep top passing candidate per source recipe.
-7. Continue until **1200 filtered pairs** are collected.
+3. Generate candidate using `mistral-large-latest`.
+4. Score candidate with deterministic audit rules.
+5. Keep the candidate if it passes; otherwise drop the recipe.
+6. Continue until **1200 filtered pairs** are collected.
 
 Target counts:
 
-- Approximate generated candidates: **1200-2400**
+- Approximate generated candidates: **1200-2000**
 - Final kept training pairs: **1200**
 
 ### Prompt semantics + template variation policy (hard requirement)
@@ -439,8 +432,8 @@ Reliability rule:
 
 **Block 2 (12:00-14:00): Synthetic Generation + Audit Loop [120 min]**
 
-- Generate candidate 1 for each source recipe with `mistral-large-latest` (Workspace B).
-- Trigger candidate 2 only on failed candidate 1 (`constraint_pass==0` or low plausibility).
+- Generate one candidate per source recipe with `mistral-large-latest` (Workspace B).
+- Drop recipe if candidate fails quality checks; move to next source.
 - Run 4 deterministic assistant completeness checks on each candidate before it enters `internal_master` (reject `...`, reject unparseable ingredients, reject unmapped violations, reject banned-term leakage).
 - Audit and retain one best passing candidate per source.
 - Continue until `1200` filtered pairs OR stop condition.
@@ -512,7 +505,7 @@ Required handoff artifacts remain in `docs/handoffs/H0` to `H4` with timestamps 
 
 ## Acceptance Criteria (Must-Have)
 
-1. Synthetic dataset target met: `1200` filtered pairs from adaptive candidate policy.
+1. Synthetic dataset target met: `1200` filtered pairs (single-candidate policy, drop-on-fail).
 2. Synthetic quality gates pass:
   - `constraint_pass_rate_on_kept >= 98%`
   - `semantic_completeness_pass_rate_on_kept = 100%`

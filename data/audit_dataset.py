@@ -449,6 +449,48 @@ def score_nontriviality(
     return round(0.8 * violation_rate + 0.2 * step_changed, 4)
 
 
+def compute_predicted_kb_coverage(
+    violations: list[dict],
+    restriction: str,
+    kb_rules: list[dict],
+) -> float:
+    """
+    Predict kb_match_rate from detected violations before making an API call.
+
+    Returns the fraction of violation ingredients that match a KB rule for the
+    given restriction.  Since valid_food_term_rate is bounded by 1.0, the final
+    plausibility score is bounded by:
+
+        0.7 * predicted_kb_rate + 0.3
+
+    If predicted_kb_rate < 0.5, plausibility can never reach 0.65 (the keep
+    threshold), so the API call can be skipped unconditionally.
+
+    Returns 0.0 when violations is empty.
+    """
+    if not violations:
+        return 0.0
+
+    applicable_terms: set[str] = set()
+    for rule in kb_rules:
+        if restriction in rule.get("applies_to_constraints", []):
+            for term in rule.get("match_terms", []):
+                applicable_terms.add(term.lower())
+
+    if not applicable_terms:
+        return 0.0
+
+    kb_matches = 0
+    for v in violations:
+        ing = v.get("ingredient", "").lower()
+        for term in applicable_terms:
+            if _word_boundary_match(ing, term) or term in ing:
+                kb_matches += 1
+                break
+
+    return round(kb_matches / len(violations), 4)
+
+
 def score_plausibility(
     replacement_pairs: list[dict],
     restriction: str,
@@ -603,14 +645,6 @@ def score_candidate(
         "semantic_completeness_pass": semantic_pass,
         "_parsed": parsed,  # internal, not written to JSONL
     }
-
-
-def should_trigger_candidate2(scores: dict) -> bool:
-    """Return True if candidate 2 should be generated (adaptive policy)."""
-    return (
-        scores["constraint_pass"] == 0
-        or scores["substitution_plausibility_score"] < 0.65
-    )
 
 
 # ---------------------------------------------------------------------------
