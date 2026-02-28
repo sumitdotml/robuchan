@@ -116,3 +116,18 @@ Use this exact shape for new entries.
   - file:PLAN.md:226
   - file:DATASET_SCHEMA.md:142
   - file:DATASET_SCHEMA.md:166
+
+### MISTAKE-20260228-004
+- id: MISTAKE-20260228-004
+- status: active
+- severity: medium
+- scope_tags: [code, planning]
+- pattern: fine-tune orchestration skipped explicit enforcement of plan-level quality gate criteria before starting training
+- prevention_rule: before enabling training start paths, enforce dataset quality gate checks from PLAN.md with deterministic pass/fail logic and block start on gate failure
+- validation_check: run `uv run python train/finetune.py check-quality-gate` and verify `start-job` exits non-zero when gate artifact is missing or failing
+- first_seen: 2026-02-28
+- last_seen: 2026-02-28
+- occurrence_count: 1
+- evidence:
+  - file:train/finetune.py:276
+  - file:PLAN.md:310
