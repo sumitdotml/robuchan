@@ -30,6 +30,7 @@ import json
 import os
 import subprocess
 import sys
+import tempfile
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -92,16 +93,20 @@ def check_quality_gate(quality_gate_path: Path, target_kept_rows: int) -> CheckR
             status=FAIL,
             detail=f"quality gate artifact missing: {quality_gate_path}",
         )
-    command = [
-        sys.executable,
-        str(REPO_ROOT / "train/finetune.py"),
-        "check-quality-gate",
-        "--quality-gate-path",
-        str(quality_gate_path),
-        "--target-kept-rows",
-        str(target_kept_rows),
-    ]
-    completed = subprocess.run(command, capture_output=True, text=True, cwd=REPO_ROOT)
+    with tempfile.TemporaryDirectory(prefix="prelaunch-check-") as temp_dir:
+        scratch_manifest_path = Path(temp_dir) / "scratch_manifest.json"
+        command = [
+            sys.executable,
+            str(REPO_ROOT / "train/finetune.py"),
+            "check-quality-gate",
+            "--quality-gate-path",
+            str(quality_gate_path),
+            "--target-kept-rows",
+            str(target_kept_rows),
+            "--manifest-path",
+            str(scratch_manifest_path),
+        ]
+        completed = subprocess.run(command, capture_output=True, text=True, cwd=REPO_ROOT)
     if completed.returncode == 0:
         first_line = completed.stdout.strip().splitlines()[0] if completed.stdout.strip() else "quality gate passed"
         return CheckResult(name="quality_gate", status=PASS, detail=first_line)
