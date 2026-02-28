@@ -111,6 +111,7 @@ def main() -> int:
     matched_ids = sorted(set(baseline_index).intersection(candidate_index))
     baseline_only = sorted(set(baseline_index).difference(candidate_index))
     candidate_only = sorted(set(candidate_index).difference(baseline_index))
+    row_set_mismatch = bool(baseline_only or candidate_only)
 
     wins = 0
     losses = 0
@@ -173,6 +174,11 @@ def main() -> int:
     comparable = wins + losses + ties
     hard_case_win_rate = (wins / comparable) if comparable else None
     non_loss_rate = ((wins + ties) / comparable) if comparable else None
+    avg_score_delta = mean(deltas) if deltas else None
+    if row_set_mismatch:
+        hard_case_win_rate = None
+        non_loss_rate = None
+        avg_score_delta = None
 
     output = {
         "generated_at": utc_now_iso(),
@@ -185,6 +191,8 @@ def main() -> int:
             "matched_rows": len(matched_ids),
             "baseline_only_rows": len(baseline_only),
             "candidate_only_rows": len(candidate_only),
+            "row_set_mismatch": row_set_mismatch,
+            "headline_metrics_suppressed_due_to_row_set_mismatch": row_set_mismatch,
             "comparable_rows": comparable,
             "incomparable_rows": incomparable,
             "wins": wins,
@@ -192,7 +200,7 @@ def main() -> int:
             "ties": ties,
             "hard_case_win_rate": hard_case_win_rate,
             "hard_case_non_loss_rate": non_loss_rate,
-            "avg_score_delta": mean(deltas) if deltas else None,
+            "avg_score_delta": avg_score_delta,
             "score_source_pair_breakdown": dict(sorted(score_source_pair_breakdown.items())),
             "mixed_source_incomparable_rows": mixed_source_incomparable_rows,
             "mixed_source_incomparable_rate": (
@@ -218,6 +226,11 @@ def main() -> int:
         f" wins={wins} losses={losses} ties={ties}"
         f" hard_case_win_rate={hard_case_win_rate}"
     )
+    if row_set_mismatch:
+        print(
+            "warning: baseline/candidate row IDs differ; headline win-rate metrics are suppressed",
+            file=sys.stderr,
+        )
     return 0
 
 
