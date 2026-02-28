@@ -136,7 +136,7 @@ Most important metrics to check:
 - `format_pass_rate`
 - `avg_judge_score`
 - `hard_case_win_rate`
-- `score_source_pair_breakdown` and `mixed_source_comparable_rate` (to detect judge/fallback mixing in hard-case comparison)
+- `score_source_pair_breakdown` and `mixed_source_incomparable_rate` (to detect judge/fallback mixing excluded from pairwise math)
 
 ## 4. Optional Modes
 

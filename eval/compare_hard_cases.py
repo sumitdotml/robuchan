@@ -119,7 +119,7 @@ def main() -> int:
     deltas: list[float] = []
     per_row: list[dict[str, Any]] = []
     score_source_pair_breakdown: dict[str, int] = {}
-    mixed_source_comparable_rows = 0
+    mixed_source_incomparable_rows = 0
 
     for row_id in matched_ids:
         base_row = baseline_index[row_id]
@@ -147,11 +147,17 @@ def main() -> int:
             per_row.append(result)
             continue
 
+        if base_bucket != cand_bucket:
+            mixed_source_incomparable_rows += 1
+            incomparable += 1
+            result["result"] = "incomparable"
+            result["incomparable_reason"] = "mixed_score_source"
+            per_row.append(result)
+            continue
+
         delta = cand_score - base_score
         deltas.append(delta)
         result["score_delta"] = delta
-        if base_bucket != cand_bucket:
-            mixed_source_comparable_rows += 1
 
         if delta > args.min_win_delta:
             wins += 1
@@ -188,9 +194,9 @@ def main() -> int:
             "hard_case_non_loss_rate": non_loss_rate,
             "avg_score_delta": mean(deltas) if deltas else None,
             "score_source_pair_breakdown": dict(sorted(score_source_pair_breakdown.items())),
-            "mixed_source_comparable_rows": mixed_source_comparable_rows,
-            "mixed_source_comparable_rate": (
-                mixed_source_comparable_rows / comparable if comparable else None
+            "mixed_source_incomparable_rows": mixed_source_incomparable_rows,
+            "mixed_source_incomparable_rate": (
+                mixed_source_incomparable_rows / len(matched_ids) if matched_ids else None
             ),
         },
         "row_mismatches": {
