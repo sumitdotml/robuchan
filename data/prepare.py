@@ -1181,9 +1181,6 @@ async def _run_generate_async(
             # Semaphore caps concurrent in-flight API calls.
             # The await inside holds the slot until the HTTP response returns,
             # letting other coroutines proceed with CPU work in between.
-            progress.console.print(
-                f"[dim]  {recipe_id}  waiting for semaphore slot…[/dim]"
-            )
             async with sem:
                 if stop_event.is_set():
                     return
@@ -1239,9 +1236,6 @@ async def _run_generate_async(
 
             # CPU-bound scoring runs outside the semaphore so the slot is
             # freed for another recipe to start its API call immediately.
-            progress.console.print(
-                f"[dim]  {recipe_id}  scoring…[/dim]"
-            )
             try:
                 scores_raw = score_candidate(
                     assistant_content=assistant_content,
@@ -1254,7 +1248,7 @@ async def _run_generate_async(
                     aliases_data=aliases_data,
                 )
                 parsed = scores_raw.pop("_parsed")
-                audit_scores = {k: v for k, v in scores_raw.items()}
+                audit_scores = scores_raw
                 comp_passed, _ = check_completeness_validation(
                     assistant_content, violations, parsed
                 )
@@ -1267,54 +1261,53 @@ async def _run_generate_async(
                 rejected_file.write(json.dumps({"source_recipe_id": recipe_id, "reject_reason": "scoring_error"}, ensure_ascii=False) + "\n")
                 return
 
-            progress.console.print(
-                f"[dim]  {recipe_id}"
-                f"  constraint_pass={audit_scores.get('constraint_pass')}"
-                f"  relevance={audit_scores.get('relevance_score', 0):.2f}"
-                f"  nontrivial={audit_scores.get('nontriviality_score', 0):.2f}"
-                f"  completeness_pass={audit_scores.get('semantic_completeness_pass')}"
-                f"  comp_validation={int(comp_passed)}[/dim]"
-            )
-
-            best_row = _build_master_row(
-                recipe_id, recipe, restriction, violations,
-                parsed, prompt_messages, audit_scores,
-                template_id, richness_tier, comp_passed,
-            )
-
-            # Finalize kept_for_training flag
-            s = best_row["audit_scores"]
-            comp_ok = best_row.pop("_completeness_ok", False)
             kept = (
-                s["constraint_pass"] == 1
-                and s["semantic_completeness_pass"] == 1
-                and comp_ok
+                audit_scores["constraint_pass"] == 1
+                and audit_scores["semantic_completeness_pass"] == 1
+                and comp_passed
             )
-            best_row["kept_for_training"] = kept
-
             total_kept = already_kept_count + state["kept_count"]
-            if kept:
-                state["kept_count"] += 1
-                total_kept += 1
-                state["accept_counts"]["kept"] += 1
-                if total_kept >= args.target_pairs:
-                    stop_event.set()
-                progress.console.print(
-                    f"[bold green]  ✓ KEPT  {recipe_id}"
-                    f"  kept={total_kept}/{args.target_pairs}[/bold green]"
-                )
-            else:
+
+            if not kept:
                 reject_reason = (
-                    "constraint_fail" if s["constraint_pass"] != 1
-                    else "semantic_fail" if s["semantic_completeness_pass"] != 1
+                    "constraint_fail" if audit_scores["constraint_pass"] != 1
+                    else "semantic_fail" if audit_scores["semantic_completeness_pass"] != 1
                     else "comp_validation_fail"
                 )
                 state["reject_counts"][reject_reason] += 1
                 progress.console.print(
                     f"[yellow]  ✗ DROPPED  {recipe_id}  reason={reject_reason}[/yellow]"
                 )
+                progress.update(
+                    task_id,
+                    completed=total_kept,
+                    description=(
+                        f"gen:{state['gen_total']} "
+                        f"kept:{total_kept}/{args.target_pairs}"
+                    ),
+                )
+                rejected_file.write(json.dumps({"source_recipe_id": recipe_id, "reject_reason": reject_reason}, ensure_ascii=False) + "\n")
+                if state["gen_total"] % 50 == 0:
+                    rejected_file.flush()
+                return
 
-            # Always refresh so gen_total is visible even when nothing is kept yet
+            best_row = _build_master_row(
+                recipe_id, recipe, restriction, violations,
+                parsed, prompt_messages, audit_scores,
+                template_id, richness_tier, comp_passed,
+            )
+            best_row["kept_for_training"] = True
+            best_row.pop("_completeness_ok", None)
+
+            state["kept_count"] += 1
+            total_kept += 1
+            state["accept_counts"]["kept"] += 1
+            if total_kept >= args.target_pairs:
+                stop_event.set()
+            progress.console.print(
+                f"[bold green]  ✓ KEPT  {recipe_id}"
+                f"  kept={total_kept}/{args.target_pairs}[/bold green]"
+            )
             progress.update(
                 task_id,
                 completed=total_kept,
@@ -1323,46 +1316,25 @@ async def _run_generate_async(
                     f"kept:{total_kept}/{args.target_pairs}"
                 ),
             )
-
-            # Single-threaded event-loop writes are never interleaved.
-            # Kept records go to internal_master; rejected go to rejected_log.
-            if kept:
-                master_file.write(json.dumps(best_row, ensure_ascii=False) + "\n")
-                master_file.flush()
-            else:
-                rejected_file.write(json.dumps(best_row, ensure_ascii=False) + "\n")
-                if state["gen_total"] % 50 == 0:
-                    rejected_file.flush()
+            master_file.write(json.dumps(best_row, ensure_ascii=False) + "\n")
+            master_file.flush()
             progress.console.print(
-                f"[dim]← DONE  {recipe_id}  {'master' if kept else 'rejected_log'}[/dim]"
+                f"[dim]← DONE  {recipe_id}  master[/dim]"
             )
 
-        batch_size = args.concurrency
-        all_exceptions: list[Exception] = []
-        for batch_start in range(0, len(todo), batch_size):
-            if stop_event.is_set():
-                break
-            batch = todo[batch_start: batch_start + batch_size]
-            console.print(
-                f"[bold]Dispatching batch {batch_start // batch_size + 1}"
-                f" ({batch_start + 1}–{batch_start + len(batch)} of {len(todo)})…[/bold]"
-            )
-            results = await asyncio.gather(
-                *[process_one(entry) for entry in batch],
-                return_exceptions=True,
-            )
-            exceptions = [r for r in results if isinstance(r, Exception)]
-            all_exceptions.extend(exceptions)
-            if exceptions:
-                console.print(
-                    f"[red]  batch had {len(exceptions)} unhandled exception(s):[/red]"
-                )
-                for exc in exceptions[:3]:  # show first 3 to avoid flooding
-                    tb = "".join(traceback.format_exception(type(exc), exc, exc.__traceback__))
-                    console.print(tb, markup=False)
+        results = await asyncio.gather(
+            *[process_one(entry) for entry in todo],
+            return_exceptions=True,
+        )
+        all_exceptions = [r for r in results if isinstance(r, Exception)]
+        if all_exceptions:
+            console.print(f"[red]  {len(all_exceptions)} unhandled exception(s):[/red]")
+            for exc in all_exceptions[:3]:
+                tb = "".join(traceback.format_exception(type(exc), exc, exc.__traceback__))
+                console.print(tb, markup=False)
 
         console.print(
-            f"[bold]all batches complete — gen_total={state['gen_total']}"
+            f"[bold]generation complete — gen_total={state['gen_total']}"
             f"  kept={state['kept_count']}"
             f"  api_errors={state['reject_counts'].get('api_error', 0)}"
             f"  accepts={dict(state['accept_counts'])}"
