@@ -39,6 +39,12 @@ SECTION_HEADERS = (
     "flavor preservation notes",
     "constraint check",
 )
+SCAN_SECTION_HEADERS = ("adapted ingredients", "adapted steps")
+SECTION_HEADER_PATTERN = re.compile(
+    r"(?im)^\s{0,3}(?:#{1,6}\s*)?"
+    r"(substitution plan|adapted ingredients|adapted steps|flavor preservation notes|constraint check)"
+    r"\s*:?\s*$"
+)
 ChatMessages = list[chatcompletionrequest.MessagesTypedDict]
 
 
@@ -253,11 +259,51 @@ def check_required_sections(output_text: str) -> tuple[bool, list[str]]:
     return len(missing) == 0, missing
 
 
+def parse_output_sections(output_text: str) -> list[tuple[str, int, int, str]]:
+    matches = list(SECTION_HEADER_PATTERN.finditer(output_text))
+    parsed: list[tuple[str, int, int, str]] = []
+    for index, match in enumerate(matches):
+        name = match.group(1).strip().lower()
+        body_start = match.end()
+        body_end = matches[index + 1].start() if index + 1 < len(matches) else len(output_text)
+        parsed.append((name, match.start(), body_end, output_text[body_start:body_end].strip()))
+    return parsed
+
+
+def build_constraint_scan_text(output_text: str) -> tuple[str, str]:
+    sections = parse_output_sections(output_text)
+    if not sections:
+        return output_text, "full_output"
+
+    section_bodies = {name: body for name, _, _, body in sections}
+    adapted_only = "\n\n".join(
+        section_bodies.get(header, "")
+        for header in SCAN_SECTION_HEADERS
+        if section_bodies.get(header, "")
+    ).strip()
+    if adapted_only:
+        return adapted_only, "adapted_sections_only"
+
+    constraint_span = next(
+        ((start, end) for name, start, end, _ in sections if name == "constraint check"),
+        None,
+    )
+    if constraint_span is None:
+        return output_text, "full_output"
+
+    span_start, span_end = constraint_span
+    without_constraint_check = f"{output_text[:span_start]}\n{output_text[span_end:]}".strip()
+    if without_constraint_check:
+        return without_constraint_check, "full_output_minus_constraint_check"
+    return output_text, "full_output"
+
+
 def deterministic_constraint_check(
     output_text: str,
     restrictions: list[str],
     compiled_constraints: dict[str, list[tuple[str, re.Pattern[str]]]],
 ) -> dict[str, Any]:
+    scan_text, scan_mode = build_constraint_scan_text(output_text)
     violations: list[dict[str, Any]] = []
     unknown_restrictions: list[str] = []
     checked_restrictions = 0
@@ -269,7 +315,7 @@ def deterministic_constraint_check(
             unknown_restrictions.append(raw_restriction)
             continue
         checked_restrictions += 1
-        matched_terms = sorted({term for term, pattern in banned_entries if pattern.search(output_text)})
+        matched_terms = sorted({term for term, pattern in banned_entries if pattern.search(scan_text)})
         if matched_terms:
             violations.append(
                 {
@@ -290,6 +336,7 @@ def deterministic_constraint_check(
         "unknown_restrictions": unknown_restrictions,
         "violations": violations,
         "constraint_pass": constraint_pass,
+        "scan_mode": scan_mode,
     }
 
 
