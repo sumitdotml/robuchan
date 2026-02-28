@@ -73,6 +73,24 @@ Dominant drop reasons:
 3. Audit/filter and keep `1200` final pairs.
 4. Run fine-tuning and evaluate with `quick50 + final150 + hard30`.
 
+## Open: Constraints Coverage Validation (Block 1 Hard Gate)
+
+**Status:** must decide during Block 1 after Food.com ingest.
+
+`eval/constraints.json` (v2, 607 terms, 10 categories) is a best-effort starting point. Coverage has NOT been validated against real Food.com ingredient vocabulary.
+
+**Required action in Block 1:**
+
+1. After Food.com ingest, extract all unique ingredient strings from the curated source pool.
+2. For each supported dietary constraint, cross-reference source ingredients against the banned list.
+3. Flag ingredients that a human would consider violations but are missing from the list (coverage gaps).
+4. Flag banned terms that would produce false positives against real ingredient strings (e.g., "cream" matching "cream of tartar").
+5. Extend `eval/constraints.json` with discovered gaps before starting synthetic generation.
+
+**Why this matters:** if the banned list is too narrow, `constraint_pass` will report false passes — adapted recipes that still contain violating ingredients will enter the training set. The model learns to produce non-compliant output. This is the hardest quality failure to catch downstream because the audit says "pass" but the recipe is wrong.
+
+**Decision criteria:** coverage check passes when a manual review of 50 random flagged-vs-unflagged ingredients shows <= 2 false negatives (missed violations) and <= 2 false positives (wrongly flagged compliant ingredients).
+
 ## References
 
 - Food.com Kaggle dataset: <https://www.kaggle.com/datasets/irkaal/foodcom-recipes-and-reviews/data>

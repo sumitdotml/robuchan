@@ -434,7 +434,8 @@ Reliability rule:
 - Verify env keys and `uv` tooling.
 - Run Food.com ingest and source-pool selection.
 - Produce `artifacts/source_pool_summary.json`.
-- Exit gate: curated source pool exists and parse checks pass.
+- Run constraints coverage check: extract unique ingredients from source pool, cross-reference against `eval/constraints.json`, extend banned lists with discovered gaps. Must pass before Block 2.
+- Exit gate: curated source pool exists, parse checks pass, and constraints coverage validated.
 
 **Block 2 (12:00-14:00): Synthetic Generation + Audit Loop [120 min]**
 
