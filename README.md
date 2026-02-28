@@ -73,6 +73,7 @@ uv run python train/finetune.py status --json
 ```
 
 Job/file IDs are saved to `artifacts/ft_run_manifest.json`.
+When `WANDB_API_KEY` is set, W&B tracking is enabled automatically. The project is selected from `--wandb-project`, then `WANDB_PROJECT`, then `recipe-remix`.
 W&B project does not need to be created manually beforehand in most cases; if the API key has permission, the run can create the project on first write.
 
 ## Stack

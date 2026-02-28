@@ -131,3 +131,61 @@ Use this exact shape for new entries.
 - evidence:
   - file:train/finetune.py:276
   - file:PLAN.md:310
+
+### MISTAKE-20260228-005
+- id: MISTAKE-20260228-005
+- status: active
+- severity: medium
+- scope_tags: [code]
+- pattern: local script imported a sibling module name that collides with popular third-party package names
+- prevention_rule: avoid ambiguous top-level imports for local scripts; use uniquely named local modules (for example `eval_engine`) for shared logic
+- validation_check: run `uv run python eval/baseline.py --help` in a clean venv and verify import resolution does not depend on the absence of third-party packages with colliding names
+- first_seen: 2026-02-28
+- last_seen: 2026-02-28
+- occurrence_count: 1
+- evidence:
+  - file:eval/baseline.py:16
+
+### MISTAKE-20260228-006
+- id: MISTAKE-20260228-006
+- status: active
+- severity: medium
+- scope_tags: [code, planning]
+- pattern: evaluation implementation omitted a headline plan metric requiring pairwise model comparison
+- prevention_rule: when implementing evaluation pipelines, map each plan headline metric to a concrete script output before finalizing
+- validation_check: verify a comparator script produces `hard_case_win_rate` from baseline and candidate hard-case row outputs
+- first_seen: 2026-02-28
+- last_seen: 2026-02-28
+- occurrence_count: 1
+- evidence:
+  - file:PLAN.md:404
+  - file:eval/compare_hard_cases.py:1
+
+### MISTAKE-20260228-007
+- id: MISTAKE-20260228-007
+- status: active
+- severity: medium
+- scope_tags: [code]
+- pattern: mistral sdk chat.complete calls accepted runtime dict messages but internal types were left as generic dicts, causing static type failures
+- prevention_rule: when calling mistral chat.complete, thread mistral chatcompletionrequest message typed dicts through function signatures and message builders
+- validation_check: run `uv run ty check eval/eval_engine.py eval/evaluate.py eval/baseline.py` and verify no `invalid-argument-type` diagnostics on chat.complete message arguments
+- first_seen: 2026-02-28
+- last_seen: 2026-02-28
+- occurrence_count: 1
+- evidence:
+  - file:eval/eval_engine.py:351
+  - file:eval/eval_engine.py:410
+
+### MISTAKE-20260228-008
+- id: MISTAKE-20260228-008
+- status: active
+- severity: medium
+- scope_tags: [code]
+- pattern: iterative patching introduced duplicate helper definitions and temporary function shadowing in the same file
+- prevention_rule: after non-trivial patches, run a duplicate-definition scan and ensure each helper has a single canonical implementation before continuing
+- validation_check: run `rg \"^def (resolve_wandb_project|maybe_wandb_integrations)\\(\" train/finetune.py -n` and verify each helper appears exactly once
+- first_seen: 2026-02-28
+- last_seen: 2026-02-28
+- occurrence_count: 1
+- evidence:
+  - file:train/finetune.py:406
