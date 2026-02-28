@@ -252,20 +252,6 @@ Use this exact shape for new entries.
 - status: active
 - severity: medium
 - scope_tags: [code]
-- pattern: wrapper script changed child process cwd but forwarded relative file path arguments without caller-based resolution, breaking path semantics outside repo root
-- prevention_rule: when invoking subprocesses with an overridden cwd, resolve user-supplied relative paths to absolute paths from caller context before dispatch
-- validation_check: run watcher from outside repo with a relative manifest path and verify the child command targets the intended file
-- first_seen: 2026-02-28
-- last_seen: 2026-02-28
-- occurrence_count: 1
-- evidence:
-  - file:scripts/watch_job.py:65
-
-### MISTAKE-20260228-018
-- id: MISTAKE-20260228-018
-- status: active
-- severity: medium
-- scope_tags: [code]
 - pattern: json mode command reused verbose helper prints, producing mixed human and json stdout and breaking machine parsing
 - prevention_rule: for `--json` paths, suppress human logging and emit exactly one json payload on stdout
 - validation_check: run `train/finetune.py check-quality-gate --json` and verify stdout parses as JSON in both pass and fail cases
@@ -275,8 +261,8 @@ Use this exact shape for new entries.
 - evidence:
   - file:train/finetune.py:720
 
-### MISTAKE-20260228-019
-- id: MISTAKE-20260228-019
+### MISTAKE-20260228-018
+- id: MISTAKE-20260228-018
 - status: active
 - severity: medium
 - scope_tags: [code, eval]
@@ -288,3 +274,17 @@ Use this exact shape for new entries.
 - occurrence_count: 1
 - evidence:
   - file:eval/eval_engine.py:255
+
+### MISTAKE-20260228-019
+- id: MISTAKE-20260228-019
+- status: active
+- severity: medium
+- scope_tags: [code]
+- pattern: wrapper script changed child process cwd but forwarded relative file path arguments without caller-based resolution, breaking path semantics outside repo root
+- prevention_rule: when invoking subprocesses with an overridden cwd, resolve user-supplied relative paths to absolute paths from caller context before dispatch
+- validation_check: run watcher from outside repo with a relative manifest path and verify the child command targets the intended file
+- first_seen: 2026-02-28
+- last_seen: 2026-02-28
+- occurrence_count: 1
+- evidence:
+  - file:scripts/watch_job.py:65
