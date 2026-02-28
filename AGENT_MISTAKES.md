@@ -457,3 +457,31 @@ Use this exact shape for new entries.
 - occurrence_count: 1
 - evidence:
   - file:eval/eval_engine.py:255
+
+### MISTAKE-20260228-020
+- id: MISTAKE-20260228-020
+- status: active
+- severity: medium
+- scope_tags: [code, eval]
+- pattern: eval summary cast judge numeric fields with float(...) without validation, allowing malformed values to crash aggregation
+- prevention_rule: normalize judge numeric fields via safe parsing and treat malformed values as missing while recording invalid counts
+- validation_check: run summary aggregation with non-numeric judge values and verify no exception is raised
+- first_seen: 2026-02-28
+- last_seen: 2026-02-28
+- occurrence_count: 1
+- evidence:
+  - file:eval/eval_engine.py:503
+
+### MISTAKE-20260228-021
+- id: MISTAKE-20260228-021
+- status: active
+- severity: medium
+- scope_tags: [code]
+- pattern: quality gate kept_rows conversion used raw int(...) and crashed on non-integer formats instead of producing structured gate errors
+- prevention_rule: parse kept_rows with guarded int conversion and report non-integer values in the quality gate error list
+- validation_check: run check-quality-gate with invalid kept_rows and verify report includes a non-integer error without traceback
+- first_seen: 2026-02-28
+- last_seen: 2026-02-28
+- occurrence_count: 1
+- evidence:
+  - file:train/finetune.py:320
