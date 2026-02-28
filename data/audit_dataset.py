@@ -75,6 +75,15 @@ _BOLD_RE = re.compile(r"\*\*([^*]+)\*\*")
 _CONSTRAINT_PATTERN_CACHE: dict[str, re.Pattern | None] = {}
 # Cache: lowercased known-false-positive phrases (same for all restrictions).
 _KNOWN_FPS_CACHE: list[str] | None = None
+# Cache: aliases_data loaded once for check 4 normalization.
+_ALIASES_DATA_CACHE: dict | None = None
+
+
+def _get_aliases_data() -> dict:
+    global _ALIASES_DATA_CACHE
+    if _ALIASES_DATA_CACHE is None:
+        _ALIASES_DATA_CACHE = load_aliases()
+    return _ALIASES_DATA_CACHE
 
 
 def _get_constraint_pattern(restriction: str, constraints: dict) -> "re.Pattern | None":
@@ -453,23 +462,45 @@ def check_completeness_validation(
         if not found:
             failures.append(f"violation_unmapped_in_substitution_plan: {ingredient}")
 
-    # Check 4: no removed/banned ingredients appear in adapted content
-    adapted_combined = (
-        parsed["adapted_ingredients_text"] + " " + parsed["adapted_steps_text"]
-    ).lower()
+    # Check 4: no removed ingredient still appears unchanged in the adapted ingredient list.
+    # Uses normalized ingredient comparison WITHOUT alias mapping so that different-but-related
+    # varieties (e.g. "cremini mushroom" replacing "button mushroom") are not collapsed to the
+    # same alias term and falsely flagged.  Pairs where the model explicitly keeps an ingredient
+    # ("No change", "Already compliant", etc.) are skipped.
+    _NO_CHANGE_RE = re.compile(
+        r"\bno\s+change\b|\bno\s+substitution\b|\bunchanged\b|\bkeep\b|\bremains?\b"
+        r"|\balready\b|\bcompliant\b|\bretain(ed)?\b|\bsame\b|\breduce[ds]?\b|\bomit(ted)?\b",
+        re.IGNORECASE,
+    )
+    _DASH_ONLY_RE = re.compile(r"^[\u2013\u2014\-\s]+$")
+    aliases_data = _get_aliases_data()
+    # Build a no-alias version of aliases_data for check 4 normalization.
+    aliases_data_no_alias = {
+        k: v for k, v in aliases_data.items() if k != "aliases"
+    }
+    norm_adapted_ings = {
+        normalize_ingredient(ing, aliases_data_no_alias)
+        for ing in parsed["adapted_ingredients"]
+    }
     for pair in parsed["replacement_pairs"]:
-        removed = pair.get("from", "").lower()
+        removed = pair.get("from", "").strip()
+        to = pair.get("to", "").strip()
         if not removed:
             continue
-        # Check if the removed ingredient's key words still appear in adapted content
-        words = [w for w in re.split(r"\s+", removed) if len(w) > 3]
-        for w in words:
-            if _word_boundary_match(adapted_combined, w):
-                # Ignore if the word is also part of a replacement phrase
-                replacement = pair.get("to", "").lower()
-                if w not in replacement:
-                    failures.append(f"banned_ingredient_in_adapted_content: {removed} (word: {w})")
-                    break
+        # Skip pairs where the model explicitly keeps or only modifies the ingredient.
+        if not to or _DASH_ONLY_RE.match(to) or _NO_CHANGE_RE.search(to):
+            continue
+        norm_removed = normalize_ingredient(removed, aliases_data_no_alias)
+        if not norm_removed:
+            continue
+        # Skip if the replacement is a modification of the same ingredient
+        # (e.g. "1 tsp cinnamon + allspice" still containing "cinnamon", or
+        # "tomato sauce (unsweetened)" still containing "tomato sauce").
+        norm_to = normalize_ingredient(to, aliases_data_no_alias)
+        if norm_removed in norm_to:
+            continue
+        if norm_removed in norm_adapted_ings:
+            failures.append(f"banned_ingredient_in_adapted_content: {removed}")
 
     return len(failures) == 0, failures
 
@@ -541,47 +572,73 @@ def score_nontriviality(
     return round(0.8 * violation_rate + 0.2 * step_changed, 4)
 
 
-def predict_step_ban_exposure(
+def predict_step_ban_occurrences(
     steps: list[str],
     restriction: str,
     constraints: dict,
 ) -> int:
     """
-    Count source step lines that mention at least one banned term for the restriction.
+    Count total word-boundary occurrences of banned terms across ALL step text.
 
-    High counts predict constraint_fail: the model must rewrite many step lines
-    and is likely to leave at least one banned-term reference intact.  The check
-    uses the same word-boundary matching as check_constraint_pass.
+    Distinct from predict_step_ban_exposure which counts contaminated LINES.
+    A single line with "melt butter, add more butter, top with butter" is
+    3 occurrences on 1 line — each is a place the model can fail to remove.
 
+    High total counts predict constraint_fail even when step_ban_lines == 1.
     Returns 0 when steps is empty or no banned terms are defined.
     """
-    banned = constraints.get(restriction, {}).get("banned", [])
-    if not steps or not banned:
+    pattern = _get_constraint_pattern(restriction, constraints)
+    if pattern is None or not steps:
         return 0
 
-    sorted_terms = sorted(banned, key=len, reverse=True)
-    combined = re.compile(
-        r"\b(?:" + "|".join(re.escape(t.lower()) for t in sorted_terms) + r")\b"
+    steps_text = " ".join(steps).lower()
+
+    # Mirror the check_constraint_pass optimisation: pre-compute which matched
+    # terms are covered by a false-positive phrase (one-time O(fps) scan), then
+    # do an O(1) frozenset lookup per match instead of a per-match window scan.
+    known_fps = _get_known_fps(constraints)
+    active_fps = [fp for fp in known_fps if fp in steps_text]
+
+    if not active_fps:
+        return sum(1 for _ in pattern.finditer(steps_text))
+
+    protected_terms = frozenset(
+        m.group(0) for fp in active_fps for m in pattern.finditer(fp)
     )
+    return sum(1 for m in pattern.finditer(steps_text) if m.group(0) not in protected_terms)
+
+
+def predict_title_ban_exposure(
+    title: str,
+    restriction: str,
+    constraints: dict,
+) -> int:
+    """
+    Count banned terms that appear in the recipe title for the restriction.
+
+    When the title is a banned ingredient (e.g. "Beef Stew" → vegetarian), the
+    model is prompted with a dish identity it cannot produce, and it tends to
+    reference the original name in adapted steps — causing constraint_fail.
+    Combined with step_ban_lines >= 1 this is a strong failure signal.
+
+    Uses the same word-boundary + false-positive matching as
+    predict_step_ban_exposure.  Returns 0 when title is empty or no banned
+    terms are defined.
+    """
+    banned = constraints.get(restriction, {}).get("banned", [])
+    if not title or not banned:
+        return 0
+
     known_fps = set(constraints.get("_meta", {}).get("known_false_positives", []))
+    title_lower = title.lower()
 
-    contaminated = 0
-    for step in steps:
-        step_lower = step.lower()
-        if not combined.search(step_lower):
-            continue
-        # Exclude lines where only false-positive phrases match
-        is_real = False
-        for term in banned:
-            if _word_boundary_match(step_lower, term):
-                fp = any(term in fp_.lower() and fp_.lower() in step_lower for fp_ in known_fps)
-                if not fp:
-                    is_real = True
-                    break
-        if is_real:
-            contaminated += 1
-
-    return contaminated
+    count = 0
+    for term in banned:
+        if _word_boundary_match(title_lower, term):
+            fp = any(term in fp_.lower() and fp_.lower() in title_lower for fp_ in known_fps)
+            if not fp:
+                count += 1
+    return count
 
 
 def score_semantic_completeness(user_content: str) -> int:
@@ -936,28 +993,34 @@ def cmd_gate(args):
     table = Table(title="Quality Gate Metrics", show_header=True)
     table.add_column("Metric", style="cyan")
     table.add_column("Value", style="white")
+    table.add_column("Expected", style="dim")
     table.add_column("Status", style="bold")
 
     gate_checks = {k: v for k, v in QUALITY_GATE_CHECKS.items()}
     for k, v in report["metrics"].items():
         if k in ("total_rows", "kept_rows", "template_distribution"):
-            table.add_row(k, str(v), "")
+            table.add_row(k, str(v), "", "")
             continue
         check = gate_checks.get(k)
         if check:
             op, threshold = check
             if op == ">=":
                 status = "[green]PASS[/green]" if v >= threshold else "[red]FAIL[/red]"
+                expected = f">= {threshold}"
             elif op == "==":
                 status = "[green]PASS[/green]" if v == threshold else "[red]FAIL[/red]"
+                expected = f"== {threshold}"
             elif op == "within":
                 lo, hi = threshold
                 status = "[green]PASS[/green]" if lo <= v <= hi else "[red]FAIL[/red]"
+                expected = f"[{lo}, {hi}]"
             else:
                 status = ""
+                expected = ""
         else:
             status = ""
-        table.add_row(k, str(v), status)
+            expected = ""
+        table.add_row(k, str(v), expected, status)
 
     console.print(table)
 

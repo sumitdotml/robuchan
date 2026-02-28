@@ -57,7 +57,7 @@ from rich.table import Table
 from audit_dataset import (
     score_candidate,
     check_completeness_validation,
-    predict_step_ban_exposure,
+    predict_step_ban_occurrences,
     predict_title_ban_exposure,
 )
 
@@ -82,9 +82,11 @@ DEFAULT_SOURCE_SIZE = 2400
 DEFAULT_CONCURRENCY = 4096  # Defined by how soon you get rate limited by Mistral
 DEFAULT_RETRIES = 0 # we have enough data, don't retry
 DEFAULT_MISTRAL_GEN_MODEL = "mistral-large-latest"
-# Skip recipes where this many source step lines contain banned terms.
-# Each contaminated step line is a place the model must rewrite; missing even one causes constraint_fail.
-DEFAULT_MAX_STEP_BAN_LINES = 1
+# Skip recipes where the total count of banned-term occurrences across all step text
+# exceeds this threshold. Analysis of 7k historical constraint-fail rows shows
+# total_occ >= 2 covers 31% of fails that slipped past the old line-count filter.
+# Default of 1 means skip if any 2+ occurrences exist anywhere in the step text.
+DEFAULT_MAX_STEP_BAN_OCCURRENCES = 1
 # Skip recipes with more than this many ingredient violations.
 # Each violation requires a correct substitution; missing any one causes constraint_fail.
 DEFAULT_MAX_INGREDIENT_VIOLATIONS = 2
@@ -1155,32 +1157,33 @@ async def _run_generate_async(
 
             recipe = recipe_entry["source_recipe"]
 
-            # Pre-filter: skip recipes whose source steps are heavily contaminated with
-            # banned terms. Each contaminated step line must be rewritten; missing one
-            # causes constraint_fail. This check is free (no API call needed).
-            step_ban_lines = predict_step_ban_exposure(recipe["steps"], restriction, constraints)
-            if step_ban_lines > args.max_step_ban_lines:
+            # Pre-filter: skip recipes whose source steps contain too many banned-term
+            # occurrences. Each occurrence must be removed; missing any one causes
+            # constraint_fail. Total occurrence count is stricter than line count:
+            # "add butter, stir butter in, top with butter" is 3 occurrences on 1 line.
+            step_ban_occ = predict_step_ban_occurrences(recipe["steps"], restriction, constraints)
+            if step_ban_occ > args.max_step_ban_occurrences:
                 state["reject_counts"]["high_step_contamination"] += 1
                 progress.console.print(
-                    f"[dim]  {recipe_id}  SKIPPED (step_ban_lines={step_ban_lines}"
-                    f" > {args.max_step_ban_lines})[/dim]"
+                    f"[dim]  {recipe_id}  SKIPPED (step_ban_occ={step_ban_occ}"
+                    f" > {args.max_step_ban_occurrences})[/dim]"
                 )
                 rejected_file.write(json.dumps({"source_recipe_id": recipe_id, "reject_reason": "high_step_contamination"}, ensure_ascii=False) + "\n")
                 return
 
             # Pre-filter: title identity + step contamination compound signal.
             # When the recipe title contains a banned term AND at least one step
-            # line does too, the model is cued by the dish name while also needing
-            # to rewrite step references — a combination that reliably causes
-            # constraint_fail.  Only applied when step_ban_lines >= 1 so it does
-            # not reject title-only contamination (where the steps are clean).
-            if args.skip_title_step_compound and step_ban_lines >= 1:
+            # occurrence exists too, the model is cued by the dish name while also
+            # needing to rewrite step references — a combination that reliably causes
+            # constraint_fail.  Only applied when step_ban_occ >= 1 so it does not
+            # reject title-only contamination (where the steps are clean).
+            if args.skip_title_step_compound and step_ban_occ >= 1:
                 title_ban = predict_title_ban_exposure(recipe["title"], restriction, constraints)
                 if title_ban >= 1:
                     state["reject_counts"]["title_step_compound"] += 1
                     progress.console.print(
                         f"[dim]  {recipe_id}  SKIPPED (title_ban={title_ban}"
-                        f"  step_ban_lines={step_ban_lines}  compound)[/dim]"
+                        f"  step_ban_occ={step_ban_occ}  compound)[/dim]"
                     )
                     rejected_file.write(json.dumps({"source_recipe_id": recipe_id, "reject_reason": "title_step_compound"}, ensure_ascii=False) + "\n")
                     return
@@ -1553,9 +1556,9 @@ def main():
                        help=f"Max parallel API calls (default: {DEFAULT_CONCURRENCY})")
     gen_p.add_argument("--num-retries", type=int, default=DEFAULT_RETRIES,
                        help="Max retries per API call on transient errors (default: {DEFAULT_RETRIES})")
-    gen_p.add_argument("--max-step-ban-lines", type=int, default=DEFAULT_MAX_STEP_BAN_LINES,
-                       help=f"Skip recipes where > N source step lines mention banned terms "
-                            f"(default: {DEFAULT_MAX_STEP_BAN_LINES}; predicts constraint_fail)")
+    gen_p.add_argument("--max-step-ban-occurrences", type=int, default=DEFAULT_MAX_STEP_BAN_OCCURRENCES,
+                       help=f"Skip recipes where total banned-term occurrences in step text > N "
+                            f"(default: {DEFAULT_MAX_STEP_BAN_OCCURRENCES}; predicts constraint_fail)")
     gen_p.add_argument("--max-ingredient-violations", type=int, default=DEFAULT_MAX_INGREDIENT_VIOLATIONS,
                        help=f"Skip recipes with more than N ingredient violations "
                             f"(default: {DEFAULT_MAX_INGREDIENT_VIOLATIONS}; predicts constraint_fail)")
