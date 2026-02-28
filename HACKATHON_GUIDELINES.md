@@ -23,3 +23,10 @@ Need to use mistral models only
 - Projects must comply with applicable laws, ethical AI practices, and the hackathon’s code of conduct.
 - Mistral, partner, and sponsor APIs must be used in accordance with their respective terms of service.
 - The organizing team reserves the right to disqualify any team that violates the rules or engages in unfair practices.
+
+## Judging Criterias
+- Technicity: 20%
+- Creativity: 20%
+- Usefulness: 20%
+- Demo: 20%
+- Track alignment: 20%
