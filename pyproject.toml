@@ -14,4 +14,5 @@ dependencies = [
     "rich",
     "huggingface-hub>=0.27",
     "wandb",
+    "matplotlib>=3.10.8",
 ]

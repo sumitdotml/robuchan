@@ -73,6 +73,7 @@ ALIASES_PATH = ROOT / "eval" / "category_aliases.json"
 SOURCE_POOL_PATH = ROOT / "artifacts" / "source_pool_summary.json"
 INTERNAL_MASTER_PATH = ROOT / "data" / "internal_master.jsonl"
 REJECTED_LOG_PATH   = ROOT / "data" / "rejected_log.jsonl"
+RESPONSE_TIMES_PATH = ROOT / "data" / "response_times.log"
 ARTIFACTS_DIR = ROOT / "artifacts"
 KB_VERSION = "swaps_v0_2026-02-28"
 DEFAULT_TARGET_PAIRS = 1200
@@ -1114,6 +1115,7 @@ async def _run_generate_async(
     with (
         open(INTERNAL_MASTER_PATH, open_mode) as master_file,
         open(REJECTED_LOG_PATH, open_mode) as rejected_file,
+        open(RESPONSE_TIMES_PATH, open_mode) as times_file,
         Progress(
             SpinnerColumn(),
             TextColumn("[progress.description]{task.description}"),
@@ -1232,10 +1234,12 @@ async def _run_generate_async(
                     rejected_file.write(json.dumps({"source_recipe_id": recipe_id, "reject_reason": "api_error"}, ensure_ascii=False) + "\n")
                     return
                 progress.console.print(
-                    f"[green]  {recipe_id}"
+                    f"[dim]  {recipe_id}"
                     f"  response received in {elapsed:.1f}s"
-                    f"  chars={len(assistant_content)}[/green]"
+                    f"  chars={len(assistant_content)}[/dim]"
                 )
+                times_file.write(f"{elapsed:.3f}\n")
+                times_file.flush()
 
             # CPU-bound scoring runs outside the semaphore so the slot is
             # freed for another recipe to start its API call immediately.
