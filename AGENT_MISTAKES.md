@@ -190,8 +190,65 @@ Use this exact shape for new entries.
 - evidence:
   - file:train/finetune.py:406
 
+
 ### MISTAKE-20260228-009
 - id: MISTAKE-20260228-009
+- status: active
+- severity: medium
+- scope_tags: [code]
+- pattern: new script imported repository modules assuming package resolution from repo root, causing module-not-found at runtime when invoked as `python scripts/...`
+- prevention_rule: for standalone scripts under `scripts/`, avoid direct package imports that rely on execution path; prefer path-stable subprocess calls or explicit path handling
+- validation_check: run `uv run python scripts/prelaunch_check.py --help` and verify startup succeeds without import errors
+- first_seen: 2026-02-28
+- last_seen: 2026-02-28
+- occurrence_count: 1
+- evidence:
+  - file:scripts/prelaunch_check.py:95
+
+### MISTAKE-20260228-010
+- id: MISTAKE-20260228-010
+- status: active
+- severity: low
+- scope_tags: [code]
+- pattern: verification commands with output dependency were executed in parallel, producing invalid validation ordering
+- prevention_rule: when one verification step consumes artifacts from another step, run them sequentially instead of parallel
+- validation_check: ensure dependent checks run in order (producer command exit observed before consumer command reads output artifact)
+- first_seen: 2026-02-28
+- last_seen: 2026-02-28
+- occurrence_count: 1
+- evidence:
+  - file:scripts/prelaunch_check.py:202
+
+### MISTAKE-20260228-011
+- id: MISTAKE-20260228-011
+- status: active
+- severity: medium
+- scope_tags: [code]
+- pattern: pairwise win-rate comparator treated mixed score scales as comparable, skewing headline metrics
+- prevention_rule: in pairwise evaluation, mark rows incomparable when score sources are mixed across incompatible scales unless explicitly opted in
+- validation_check: run comparator on mixed judge-vs-fallback fixtures and verify mixed rows increase `incomparable_rows` and do not affect win/loss/tie counts
+- first_seen: 2026-02-28
+- last_seen: 2026-02-28
+- occurrence_count: 1
+- evidence:
+  - file:eval/compare_hard_cases.py:153
+
+### MISTAKE-20260228-012
+- id: MISTAKE-20260228-012
+- status: active
+- severity: medium
+- scope_tags: [code]
+- pattern: readiness check subprocess reused default stateful output path and could satisfy a required gate via side effects
+- prevention_rule: when invoking stateful helper CLIs from validation scripts, always provide isolated scratch output paths to keep checks side-effect free
+- validation_check: run `scripts/prelaunch_check.py --require-manifest` against a missing manifest and verify it fails without creating the manifest file
+- first_seen: 2026-02-28
+- last_seen: 2026-02-28
+- occurrence_count: 1
+- evidence:
+  - file:scripts/prelaunch_check.py:95
+
+### MISTAKE-20260228-013
+- id: MISTAKE-20260228-013
 - status: active
 - severity: medium
 - scope_tags: [code, eval]
@@ -245,7 +302,6 @@ Use this exact shape for new entries.
 - occurrence_count: 1
 - evidence:
   - file:eval/eval_engine.py:491
-
 
 ### MISTAKE-20260228-017
 - id: MISTAKE-20260228-017
