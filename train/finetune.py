@@ -217,9 +217,15 @@ def recursive_find_key(data: Any, key: str) -> Any | None:
     return None
 
 
+def find_key_prefer_top_level(data: dict[str, Any], key: str) -> Any | None:
+    if key in data:
+        return data[key]
+    return recursive_find_key(data, key)
+
+
 def first_present_value(data: dict[str, Any], candidates: tuple[str, ...]) -> tuple[str | None, Any | None]:
     for candidate in candidates:
-        value = nested_get(data, candidate) if "." in candidate else recursive_find_key(data, candidate)
+        value = nested_get(data, candidate) if "." in candidate else find_key_prefer_top_level(data, candidate)
         if value is not None:
             return candidate, value
     return None, None
@@ -294,7 +300,7 @@ def evaluate_quality_gate(
     )
     explicit_outcomes: list[tuple[str, bool]] = []
     for key in explicit_gate_flags:
-        value = recursive_find_key(summary, key)
+        value = find_key_prefer_top_level(summary, key)
         if isinstance(value, bool):
             explicit_outcomes.append((key, value))
 

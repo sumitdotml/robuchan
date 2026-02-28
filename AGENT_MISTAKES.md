@@ -203,3 +203,45 @@ Use this exact shape for new entries.
 - occurrence_count: 1
 - evidence:
   - file:eval/eval_engine.py:318
+
+### MISTAKE-20260228-014
+- id: MISTAKE-20260228-014
+- status: active
+- severity: medium
+- scope_tags: [code]
+- pattern: quality-gate field lookup recursively matched nested keys before intended top-level summary keys, causing wrong gate decisions
+- prevention_rule: when reading canonical gate summary fields, always prefer top-level keys first and only fall back to recursive lookup when no top-level value exists
+- validation_check: run a fixture where top-level and nested keys differ and verify decision/kept_rows resolve from top-level
+- first_seen: 2026-02-28
+- last_seen: 2026-02-28
+- occurrence_count: 1
+- evidence:
+  - file:train/finetune.py:226
+
+### MISTAKE-20260228-015
+- id: MISTAKE-20260228-015
+- status: active
+- severity: medium
+- scope_tags: [code, eval]
+- pattern: hard-case comparator reported headline win-rate metrics on row-id intersections even when baseline and candidate row sets differed
+- prevention_rule: suppress or fail headline comparison metrics when row id sets do not match, and report mismatches explicitly
+- validation_check: run comparator with mismatched row ids and verify `hard_case_win_rate`/`avg_score_delta` are suppressed
+- first_seen: 2026-02-28
+- last_seen: 2026-02-28
+- occurrence_count: 1
+- evidence:
+  - file:eval/compare_hard_cases.py:108
+
+### MISTAKE-20260228-016
+- id: MISTAKE-20260228-016
+- status: active
+- severity: medium
+- scope_tags: [code, eval]
+- pattern: eval summary averaged judge metrics over only parsed judge rows, silently inflating headline quality when judge outputs were missing
+- prevention_rule: expose judge coverage and gate headline averages on complete judge coverage when judge scoring is enabled
+- validation_check: run summary with partial judge outputs and verify `judge_missing_rows` is non-zero while headline `avg_judge_score` is null
+- first_seen: 2026-02-28
+- last_seen: 2026-02-28
+- occurrence_count: 1
+- evidence:
+  - file:eval/eval_engine.py:491
