@@ -3,7 +3,7 @@
 
 Typical flow:
   export MISTRAL_API_KEY=...
-  export WANDB_API_KEY=...  # optional
+  export WANDB_API_KEY=...  # W&B integration auto-enables when set
 
   uv run python train/finetune.py upload \
     --train-path data/train_filtered.jsonl \
@@ -45,6 +45,7 @@ DEFAULT_MODEL = "mistral-small-latest"
 DEFAULT_SUFFIX = "recipe-remix-foodcom-synth"
 DEFAULT_TRAIN_STEPS = 100
 DEFAULT_LEARNING_RATE = 1e-4
+DEFAULT_WANDB_PROJECT = "recipe-remix"
 DEFAULT_QUALITY_GATE_PATH = Path("artifacts/dataset_audit_summary.json")
 DEFAULT_TARGET_KEPT_ROWS = 1200
 
@@ -393,15 +394,34 @@ def get_validation_file_id(args: argparse.Namespace) -> str:
     return str(file_id)
 
 
-def maybe_wandb_integrations(args: argparse.Namespace) -> list[dict[str, str]] | None:
-    if not args.wandb_project:
-        return None
+def resolve_wandb_project(project_arg: str | None) -> str:
+    if project_arg and project_arg.strip():
+        return project_arg.strip()
+    env_project = os.environ.get("WANDB_PROJECT", "").strip()
+    if env_project:
+        return env_project
+    return DEFAULT_WANDB_PROJECT
+
+
+def maybe_wandb_integrations(
+    args: argparse.Namespace,
+) -> tuple[list[dict[str, str]] | None, str | None]:
     api_key = os.environ.get(args.wandb_api_key_env, "").strip()
     if not api_key:
-        raise ValueError(
-            f"--wandb-project was set but {args.wandb_api_key_env} is missing or empty"
-        )
-    return [{"project": args.wandb_project, "api_key": api_key}]
+        if args.wandb_project:
+            raise ValueError(
+                f"--wandb-project was set but {args.wandb_api_key_env} is missing or empty"
+            )
+        return None, None
+    project = resolve_wandb_project(args.wandb_project)
+    return ([{"project": project, "api_key": api_key}], project)
+
+
+def print_wandb_mode(project: str | None) -> None:
+    if project:
+        print(f"W&B integration enabled: project={project}")
+    else:
+        print("W&B integration disabled: WANDB_API_KEY not set")
 
 
 def print_job_summary(prefix: str, job_payload: dict[str, Any]) -> None:
@@ -492,7 +512,8 @@ def cmd_create_job(args: argparse.Namespace) -> int:
 
     training_file_id = get_training_file_id(args)
     validation_file_id = get_validation_file_id(args)
-    integrations = maybe_wandb_integrations(args)
+    integrations, wandb_project = maybe_wandb_integrations(args)
+    print_wandb_mode(wandb_project)
     client = create_client()
 
     create_kwargs: dict[str, Any] = {
@@ -554,8 +575,8 @@ def cmd_create_job(args: argparse.Namespace) -> int:
             "invalid_sample_skip_percentage": args.invalid_sample_skip_percentage,
         },
         "wandb": {
-            "project": args.wandb_project,
-            "api_key_env": args.wandb_api_key_env if args.wandb_project else None,
+            "project": wandb_project,
+            "api_key_env": args.wandb_api_key_env if wandb_project else None,
         },
     }
     update_manifest(args.manifest_path, updates)
@@ -777,7 +798,15 @@ def build_parser() -> argparse.ArgumentParser:
     create_job.add_argument("--invalid-sample-skip-percentage", type=float, default=0.0)
     create_job.add_argument("--suffix", type=str, default=DEFAULT_SUFFIX)
     create_job.add_argument("--auto-start", action="store_true")
-    create_job.add_argument("--wandb-project", type=str, default=None)
+    create_job.add_argument(
+        "--wandb-project",
+        type=str,
+        default=None,
+        help=(
+            "W&B project override. If omitted and WANDB_API_KEY is set, "
+            "uses WANDB_PROJECT or defaults to recipe-remix."
+        ),
+    )
     create_job.add_argument("--wandb-api-key-env", type=str, default="WANDB_API_KEY")
     create_job.add_argument(
         "--quality-gate-path",
