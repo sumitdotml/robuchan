@@ -1,128 +1,346 @@
-# 2-Day Execution Plan: Recipe Remix Fine-Tuning (Mistral API)
+# 2-Day Execution Plan: Food.com-First Synthetic Adaptation Fine-Tuning (Mistral API)
 
 ## Summary
 
-- Fine-tune **mistral-small-latest** via **Mistral's managed cloud fine-tuning API** for dietary recipe adaptation.
-- Training runs server-side (~30-60 min) while we build eval, demo, and everything else in parallel.
-- W&B integration is built-in via the `integrations` parameter — zero custom code for training metrics.
-- Demo via Marimo app showing base vs fine-tuned + LLM-as-judge scores + substitution rationale.
-- Use one workspace as primary and the second as contingency (since workspaces are separate).
-- Publish training data, eval results, and model card to HuggingFace.
+- Primary strategy: use **Food.com recipes as source pool**, generate synthetic dietary adaptations with `mistral-large-latest`, and fine-tune `mistral-small-latest` on audited outputs.
+- Target dataset for training: **1200 final filtered pairs** from approximately **1200-2400 generated candidates** (adaptive candidate policy).
+- Prompt policy: keep semantic payload constant while varying user phrasing/templates to avoid rigid-format overfitting.
+- Evaluation structure remains: **quick50 + final150 + hard30**.
+- Work is split across two separate Mistral workspaces due billing/access constraints:
+  - **Workspace A**: fine-tuning, evaluation inference, demo inference
+  - **Workspace B**: synthetic generation spend
+- If Food.com ingest is blocked, **pause execution** (no automatic fallback).
 
 ## Architecture
 
-```
-Local Machine                     Mistral API                    W&B
-  |                                  |                            |
-  |--- upload train.jsonl ---------->|                            |
-  |--- upload valid.jsonl ---------->|                            |
-  |--- create fine-tuning job ------>|--- train server-side ----->|
-  |                                  |--- log metrics ----------->|
-  |<-- poll job status --------------|                            |
-  |                                  |                            |
-  |--- inference (fine_tuned_model)->|                            |
-  |<-- response ---------------------|                            |
+```text
+Local Machine                       Mistral API                          W&B
+  |                                     |                                |
+  |--- ingest Food.com source ----------|                                |
+  |--- generate adaptive candidates ---->| (mistral-large-latest)         |
+  |<-- synthetic candidates ------------|                                |
+  |--- deterministic audit/filter ------|                                |
+  |--- upload train/valid JSONL ------->|                                |
+  |--- create FT job ------------------>| (mistral-small-latest) -------->| training metrics
+  |<-- poll status ---------------------|                                |
+  |--- eval + demo inference ---------->|                                |
 ```
 
-- Training happens on Mistral's servers, not locally
-- W&B integration is built-in via `integrations` parameter
-- Inference uses the `fine_tuned_model` ID returned by the job
-- Base model: `mistral-small-latest`
-- Teammates use separate Mistral Workspaces (cannot share Mistral job logs/files directly)
+## Locked Decisions
+
+1. Primary data strategy: **Food.com + synthetic generation**.
+2. Generation policy: **adaptive candidates**: generate candidate 1 for all rows; generate candidate 2 only when candidate 1 fails quality triggers.
+3. Synthetic target: **1200 final filtered pairs**.
+4. Fallback policy: **pause if Food.com ingest fails**.
+5. Command style: `uv`-based workflow in docs and scripts.
+6. `kb/swaps_v0.json` is required (minimum 20-30 high-confidence swap rules).
 
 ## Collaboration Model (Separate Workspaces)
 
-- **Workspace A (primary)**: main fine-tune run, final model ID for demo/submission.
-- **Workspace B (contingency)**: optional backup run if primary misses kill switch.
-- **Shared visibility layer**: use one shared W&B project for both runs so both teammates can monitor from anywhere.
-- **Rule**: do not split one experiment across two workspaces. Each run is fully contained in one workspace.
+- **Workspace A (training/inference)**:
+  - fine-tune job(s)
+  - baseline/final eval inference
+  - demo-time inference
+- **Workspace B (data generation)**:
+  - synthetic adaptation generation via `mistral-large-latest`
+- **Shared visibility**: log all runs/artifacts to one shared W&B project.
+- **Rule**: keep each run fully contained in one workspace; share only artifacts/IDs through repo + W&B.
 
 ## Budget Guardrails
 
-- Credits available: **$15 (you) + $15 (teammate), not pooled in one workspace**.
-- Cap each workspace to **max 2 fine-tune jobs** for the weekend.
-- Keep `mini` split as default for all runs unless a bigger run is launched before Day 1 noon.
-- Reserve at least **$3/workspace** for inference, judge scoring, and demo retries.
+- Available credits: `$15` per workspace (not pooled).
+- Synthetic generation estimate (adaptive `1200-2400` generations): **~$6.60-$13.20** total (based on updated token assumptions: ~330 input, ~700 output for richer prompts/responses).
+- Budget routing:
+  - Workspace B should carry synthetic generation spend.
+  - Workspace A should reserve budget for fine-tune + eval + demo.
+- Risk note: running both synthetic generation and full training/eval in one workspace can exceed practical budget headroom.
 
-## Priority Stack
+## Creative Adaptation Objective
 
-1. **Data quality gate + pipeline** — download, parse, validate, convert to Mistral JSONL format, upload
-2. **Fine-tuning via Mistral API** — create job, monitor, get fine-tuned model ID
-3. **Evaluation** — deterministic compliance checks + two-stage LLM-as-judge via `mistral-large-latest`
-4. **W&B experiment tracking** — automatic via Mistral API `integrations` param + manual eval logging
-5. **Demo** — Marimo app showing base vs finetuned + judge scores
-6. **HF publish** — training data, eval results, model card (adapter stays on Mistral's infra)
-7. *(bonus, time permitting)* W&B Weave traces, W&B Report, mini challenge
+- Build a model that transforms a specific dish under a dietary constraint while preserving flavor intent and dish identity.
+- Non-goal: tag-only recipe retrieval.
 
-## Scope Freeze
+### Response Contract (training/eval/demo)
 
-- In scope:
-  1. Mistral API fine-tune for recipe adaptation under dietary constraints
-  2. Deterministic evaluation + LLM-as-judge quality scoring
-  3. W&B Models logging (automatic + manual eval), W&B Report
-  4. HuggingFace publication with dataset/license disclosures
-  5. Marimo interactive demo app
-- Out of scope:
-  1. Full arena UI or complex frontend
-  2. Local MLX training
-  3. Creating a custom dataset from scratch
+1. `Substitution Plan` — one row per detected violation: `original -> replacement (rationale)`. No missing violations.
+2. `Adapted Ingredients` — full cookable ingredient list with quantities/units. No `...` or "same as original" placeholders. Standard culinary unit abbreviations (`g`, `kg`, `ml`, `l`, `tsp`, `tbsp`, `min`) are allowed.
+3. `Adapted Steps` — full numbered steps reflecting replacements. No source-step leftovers mentioning removed ingredients.
+4. `Flavor Preservation Notes` — at least 3 concrete mechanism notes (umami/heat/aroma/texture/fat/acid balance).
+5. `Constraint Check` — explicit checklist: each source violation resolved + derivative check result.
 
-## Creative Adaptation Objective (Core Product Value)
+## Data Contracts and Artifacts
 
-- Goal: transform a dish to satisfy a dietary requirement while preserving dish identity and flavor intent.
-- Non-goal: simple recipe retrieval by tag/filter only.
-- Product claim for judges: the model performs context-aware culinary rewriting, not deterministic search.
+### Training pair schema (synthetic-first)
 
-Model response contract (used in training, eval, and demo):
-1. `Substitution Plan` — explicit ingredient mapping `original -> replacement` with short reason.
-2. `Adapted Recipe` — updated ingredients and updated steps.
-3. `Flavor Preservation Notes` — how core taste/aroma/texture are retained.
-4. `Constraint Check` — short self-check that output satisfies requested dietary rule.
+Each kept example must include:
 
-## Dataset Strategy
+- `source_recipe_id`
+- `source_recipe`:
+  - `title`
+  - `ingredients`
+  - `steps`
+- `target_restrictions`
+- `detected_violations`
+- `replacement_pairs` (`from`, `to`, `reason`)
+- `messages` (Mistral chat format)
+- `template_id` (`A`, `B`, or `C`)
+- `audit_scores`:
+  - `constraint_pass`
+  - `relevance_score`
+  - `nontriviality_score`
+  - `substitution_plausibility_score`
+  - `semantic_completeness_pass`
+- `kept_for_training`
+- `kb_version` (must reference `swaps_v0`)
 
-- Primary: `Sohy/RecipePair` — `mini` split first (8K rows), `default` (64K) if Run #2 needed
-- The `base` column embeds constraint as `categories: ['dairy_free']`. Parse via regex.
-- Convert to chat JSONL with system prompt + user prompt + assistant response using the response contract
-- Split: shuffle and partition into train/valid/eval (`quick50` subset + `final150` holdout from eval pool)
-- **Mandatory data quality gate before Run #1** (random 100 rows from train candidate set):
-  1. Parse success rate >= 99%
-  2. Constraint extraction success >= 99%
-  3. Target adaptation non-triviality >= 85% (ingredient or instruction changed vs source)
-  4. Duplicate pair rate <= 5%
-  5. Flavor-preservation plausibility pass >= 80% on 30 manual spot checks
-  6. If any check fails, fix parser/filtering before any fine-tune spend
+Optional (lightweight ops metadata):
 
-Hard-case eval bank (manually curated, required):
-- Create `eval/hard_cases.jsonl` with 30 cases requiring non-trivial transformation (example: vegetarian mapo tofu preserving numbing/spicy profile).
-- Each case includes: source dish text, target dietary rule, and must-keep flavor anchors.
+- `generation_attempt_count` (`1` or `2`)
+
+### Candidate-generation contract
+
+- Generate candidate 1 for every source recipe.
+- Trigger candidate 2 only if candidate 1 fails:
+  - `constraint_pass == 0`, or
+  - `substitution_plausibility_score < 0.65`.
+- Keep one retained candidate per source/constraint pair using deterministic score-first ranking.
+
+### Required artifacts
+
+- `artifacts/source_pool_summary.json`
+- `artifacts/synthetic_generation_summary.json`
+- `artifacts/dataset_audit_summary.json`
+- `data/train_filtered.jsonl`
+- `data/valid_filtered.jsonl`
+
+## Dataset Strategy (Active)
+
+### Source pool: Food.com recipes/reviews
+
+Selection rules for candidate source recipes:
+
+1. Parseable ingredients and steps.
+2. Minimum completeness (non-empty title, ingredient list, instructions).
+3. Prefer higher-quality recipes when rating/review metadata is available.
+4. Select recipes that violate at least one supported target dietary constraint.
+
+### Synthetic generation pipeline
+
+1. Ingest and normalize Food.com source recipes.
+2. Assign target dietary constraint per selected recipe.
+3. Generate candidate 1 using `mistral-large-latest`.
+4. Score candidate 1 with deterministic audit rules.
+5. Generate candidate 2 only if adaptive trigger fires.
+6. Keep top passing candidate per source recipe.
+7. Continue until **1200 filtered pairs** are collected.
+
+Target counts:
+
+- Approximate generated candidates: **1200-2400**
+- Final kept training pairs: **1200**
+
+### Prompt semantics + template variation policy (hard requirement)
+
+1. Build one canonical semantic payload per row:
+   - recipe title, ingredients (with quantities), steps
+   - target restrictions
+   - optional: cuisine tag, must-keep flavor notes, pantry/time/equipment constraints
+2. Render `user` message with one of 3 templates while preserving the same semantics.
+3. Use deterministic template assignment from `hash(source_recipe_id + primary_restriction) % 100`:
+   - `0-49`: template A (labeled block)
+   - `50-79`: template B (natural request)
+   - `80-99`: template C (goal-oriented)
+4. Run semantic completeness check before writing each row (all required payload fields present in rendered user prompt).
+5. Store template id in internal metadata; do not include QC metadata in exported `messages`.
+
+#### Template A — Labeled Block (50%)
+
+Structured, labeled fields. Most explicit format.
+
+```
+Recipe: {title}
+Cuisine: {cuisine}
+Ingredients: {ingredients_comma_separated}
+Steps: {steps_numbered_inline}
+Restrictions: {restrictions}
+Must Keep Flavor Notes: {flavor_notes}
+```
+
+Example:
+```
+Recipe: Mapo Tofu
+Cuisine: Sichuan Chinese
+Ingredients: 400g firm tofu, 200g ground pork, 2 tbsp doubanjiang, 1 tbsp oyster sauce, 3 cloves garlic, 1 inch ginger, 2 scallions, 1 tbsp cornstarch, 2 tbsp neutral oil
+Steps: 1) Brown pork in oil until crispy. 2) Add minced garlic, ginger, and doubanjiang; stir-fry 30 seconds. 3) Add tofu cubes and 1 cup water; simmer 8 minutes. 4) Mix cornstarch slurry and stir in to thicken. 5) Garnish with sliced scallions.
+Restrictions: vegetarian, shellfish-free
+Must Keep Flavor Notes: mala heat, savory umami, silky sauce
+```
+
+#### Template B — Natural Request (30%)
+
+Conversational prose. Same information, no rigid labels.
+
+```
+I have a recipe for {title} ({cuisine}) that I need to make {restrictions}-friendly.
+
+The ingredients are: {ingredients_comma_separated}.
+
+Here's how it's made: {steps_prose}
+
+Please adapt it while keeping the dish recognizable.
+```
+
+Example:
+```
+I have a recipe for Mapo Tofu (Sichuan Chinese) that I need to make vegetarian and shellfish-free.
+
+The ingredients are: 400g firm tofu, 200g ground pork, 2 tbsp doubanjiang, 1 tbsp oyster sauce, 3 cloves garlic, 1 inch ginger, 2 scallions, 1 tbsp cornstarch, 2 tbsp neutral oil.
+
+Here's how it's made: Brown the pork in oil until crispy, then add minced garlic, ginger, and doubanjiang and stir-fry for 30 seconds. Add tofu cubes with a cup of water and simmer for 8 minutes. Thicken with a cornstarch slurry and garnish with sliced scallions.
+
+Please adapt it while keeping the dish recognizable.
+```
+
+#### Template C — Goal-Oriented (20%)
+
+Leads with the dietary goal. Includes flavor preservation notes and optional practical constraints.
+
+```
+Goal: make {title} fully {restrictions}-compliant.
+
+Source ingredients:
+{ingredients_newline_list}
+
+Source steps:
+{steps_numbered_list}
+
+Preserve these flavors: {flavor_notes}.
+{optional_constraints}
+```
+
+Example:
+```
+Goal: make Mapo Tofu fully vegetarian and shellfish-free compliant.
+
+Source ingredients:
+- 400g firm tofu
+- 200g ground pork
+- 2 tbsp doubanjiang
+- 1 tbsp oyster sauce
+- 3 cloves garlic
+- 1 inch ginger
+- 2 scallions
+- 1 tbsp cornstarch
+- 2 tbsp neutral oil
+
+Source steps:
+1. Brown pork in oil until crispy.
+2. Add minced garlic, ginger, and doubanjiang; stir-fry 30 seconds.
+3. Add tofu cubes and 1 cup water; simmer 8 minutes.
+4. Mix cornstarch slurry and stir in to thicken.
+5. Garnish with sliced scallions.
+
+Preserve these flavors: mala heat, savory umami, silky sauce.
+Weeknight-friendly, under 30 minutes, no specialty equipment.
+```
+
+#### Template format variation summary
+
+| Dimension | Template A | Template B | Template C |
+|---|---|---|---|
+| Structure | Rigid labeled fields | Prose paragraphs | Goal-first + lists |
+| Ingredient format | Comma-separated inline | Comma-separated inline | Newline bulleted list |
+| Step format | Numbered inline `1) ...` | Narrative prose | Numbered list `1. ...` |
+| Tone | Neutral/structured | Conversational | Directive |
+| Cuisine tag | Always present | Parenthetical | Absent |
+| Flavor notes | Labeled field | Absent (implied) | Explicit "Preserve these flavors" |
+| Optional constraints | Absent | Absent | Present when available |
+
+### Rich `messages` role content contract (required)
+
+1. `system` must include:
+   - priority order: dietary compliance first, dish identity/flavor second, usability/clarity third
+   - strict rule: do not include forbidden ingredients or derivatives (including stocks, sauces, pastes, and broths)
+   - hard fallback rule: if no exact compliant substitute exists, acknowledge the gap, choose the closest viable option, and state the trade-off
+   - required output sections: `Substitution Plan`, `Adapted Ingredients`, `Adapted Steps`, `Flavor Preservation Notes`, `Constraint Check`
+2. `user` must include:
+   - recipe title, ingredients, and steps
+   - target restrictions/allergens
+   - optional but recommended context: cuisine tag, must-keep flavor notes, pantry/time/equipment limits
+3. `assistant` must include:
+   - `Substitution Plan`: one row per detected violation (`from -> to -> why`). Every violation in the source must be mapped. No missing entries.
+   - `Adapted Ingredients`: full cookable ingredient list with quantities and units. No `...` and no "same as original." Standard culinary unit abbreviations (`g`, `kg`, `ml`, `l`, `tsp`, `tbsp`, `min`) are allowed.
+   - `Adapted Steps`: full numbered steps reflecting all replacements. No source-step leftovers that reference removed ingredients.
+   - `Flavor Preservation Notes`: at least 3 concrete mechanism notes covering distinct dimensions (umami, heat, aroma, texture, fat, acid balance).
+   - `Constraint Check`: explicit checklist of every resolved violation + derivative check result (stocks/sauces/pastes/broths confirmed absent).
+4. Richness policy (depth tiers):
+   - **concise** (`10%`): all sections fully complete, shorter rationale per substitution, minimum 3 flavor notes. Same structural requirements — only prose density shrinks.
+   - **standard** (`70%`): full default detail level.
+   - **rich** (`20%`): standard + deeper flavor/technique explanation + optional alternative swap suggestion per substitution.
+   - All tiers must pass the same structural validation checks.
+5. Never include QC metadata in `messages` (`audit_scores`, `template_id`, `kb_*`, `replacement_pairs` raw objects).
+
+### Deterministic assistant completeness validation (reject if any fail)
+
+These checks run on every generated assistant response before it enters `internal_master`:
+
+1. Reject if `...` appears anywhere in assistant content.
+2. Reject if adapted ingredient list is not parseable or missing quantities.
+3. Reject if any entry in `detected_violations` has no corresponding row in `Substitution Plan`.
+4. Reject if any removed/banned ingredient still appears in `Adapted Ingredients` or `Adapted Steps`.
+
+### Deterministic scoring definitions (no extra judge API cost)
+
+1. `constraint_pass` (`0/1`):
+   - `1` only if all restricted ingredients/allergens in `detected_violations` are removed or replaced and no banned terms remain in adapted ingredients/steps.
+2. `relevance_score` (`0-1`):
+   - compare normalized ingredient names from source vs adapted, excluding restricted ingredients.
+   - normalization pipeline: lowercase -> strip quantities/units -> remove parentheticals/prep adjectives -> singularize -> alias-map synonyms.
+   - formula: `retained_nonrestricted_source_ingredients / total_nonrestricted_source_ingredients`.
+3. `nontriviality_score` (`0-1`):
+   - formula: `0.8 * (replaced_violations / max(1, total_violations)) + 0.2 * step_changed_flag`.
+4. `substitution_plausibility_score` (`0-1`):
+   - uses required `kb/swaps_v0.json` (20-30+ curated rules) plus food-term validity check.
+   - formula: `0.7 * kb_match_rate + 0.3 * valid_food_term_rate`.
+5. `semantic_completeness_pass` (`0/1`):
+   - `1` only if user prompt contains recipe title, ingredients, steps, and restrictions fields (any of the approved templates).
+
+### Quality gate before fine-tuning
+
+Do not start fine-tuning until all of the following pass on generated data:
+
+1. Constraint pass rate on kept set `>= 98%`
+2. Semantic completeness check pass rate `= 100%` on kept set
+3. Assistant completeness validation pass rate `= 100%` on kept set (all 4 rejection checks)
+4. Mean `relevance_score` on kept set `>= 0.55`
+5. Mean `substitution_plausibility_score` on kept set `>= 0.65`
+6. Nontrivial adaptation pass rate (`nontriviality_score >= 0.5`) `>= 90%` on kept set
+7. Template distribution on kept set is near target split (A/B/C = 50/30/20 with `+/-10` percentage points per bucket)
+8. Manual 10-row spot-check pass `>= 80%` before launching fine-tuning
 
 ## JSONL Format (Mistral API)
 
 ```json
-{"messages": [{"role": "system", "content": "You are a culinary adaptation assistant..."}, {"role": "user", "content": "Adapt this recipe for dairy free:\n\n..."}, {"role": "assistant", "content": "...adapted recipe..."}]}
+{
+  "messages": [
+    {
+      "role": "system",
+      "content": "You are a culinary adaptation assistant. Priority: (1) strict dietary compliance, (2) preserve dish identity and flavor profile, (3) keep instructions practical and cookable. Never include forbidden ingredients or their derivatives (stocks, sauces, pastes, broths). If no exact compliant substitute exists, acknowledge the gap, choose the closest viable option, and state the trade-off. Output sections exactly: Substitution Plan, Adapted Ingredients, Adapted Steps, Flavor Preservation Notes, Constraint Check."
+    },
+    {
+      "role": "user",
+      "content": "Recipe: Mapo Tofu\nCuisine: Sichuan Chinese\nIngredients: 400g firm tofu, 200g ground pork, 2 tbsp doubanjiang, 1 tbsp oyster sauce, 3 cloves garlic, 1 inch ginger, 2 scallions, 1 tbsp cornstarch, 2 tbsp neutral oil\nSteps: 1) Brown pork in oil until crispy. 2) Add minced garlic, ginger, and doubanjiang; stir-fry 30 seconds. 3) Add tofu cubes and 1 cup water; simmer 8 minutes. 4) Mix cornstarch slurry and stir in to thicken. 5) Garnish with sliced scallions.\nRestrictions: vegetarian, shellfish-free\nMust Keep Flavor Notes: mala heat, savory umami, silky sauce"
+    },
+    {
+      "role": "assistant",
+      "content": "Substitution Plan:\n- ground pork -> 150g finely chopped shiitake mushrooms + 50g crushed toasted walnuts (shiitake provides meaty chew and glutamate-driven umami; walnuts add fat richness and crumble texture similar to browned pork)\n- oyster sauce -> 1 tbsp mushroom soy sauce + 0.5 tsp sugar (mushroom soy supplies dark color and fermented depth; sugar compensates for the mild sweetness oyster sauce contributes)\n\nAdapted Ingredients:\n- 400g firm tofu, cut into 2cm cubes\n- 150g shiitake mushrooms, stems removed, finely chopped\n- 50g walnuts, toasted and roughly crushed\n- 2 tbsp doubanjiang\n- 1 tbsp mushroom soy sauce\n- 0.5 tsp sugar\n- 3 cloves garlic, minced\n- 1 inch ginger, minced\n- 2 scallions, sliced (white and green parts separated)\n- 1 tbsp cornstarch mixed with 2 tbsp water\n- 2 tbsp neutral oil\n\nAdapted Steps:\n1) Heat oil in a wok over high heat. Add chopped shiitake and crushed walnuts; stir-fry 3-4 minutes until mushrooms release moisture and edges brown.\n2) Add minced garlic, ginger, and scallion whites. Stir-fry 30 seconds until fragrant.\n3) Add doubanjiang and stir-fry 20 seconds to bloom in oil.\n4) Add mushroom soy sauce and sugar; toss to combine.\n5) Add tofu cubes gently and 1 cup water. Simmer 8 minutes without stirring to avoid breaking tofu.\n6) Drizzle cornstarch slurry around edges; gently fold until sauce thickens and coats tofu.\n7) Garnish with scallion greens.\n\nFlavor Preservation Notes:\n- Umami: shiitake glutamates + mushroom soy fermentation replace pork and oyster sauce umami sources. Doubanjiang (fermented bean paste) remains the primary flavor driver.\n- Heat: mala profile is fully intact — doubanjiang provides the la (numbing heat). Add Sichuan peppercorn if source recipe included it.\n- Texture: walnut crumble mimics the crispy rendered pork bits; shiitake provides chew. The sauce remains silky via the same cornstarch slurry technique.\n\nConstraint Check:\n- ground pork (meat): removed, replaced with shiitake + walnut\n- oyster sauce (shellfish-derived): removed, replaced with mushroom soy sauce + sugar\n- Derivative check: no meat stocks, fish sauces, or shellfish-derived pastes remain in adapted recipe"
+    }
+  ]
+}
 ```
 
-One JSON object per line, `messages` array with `role`/`content`.
-
-## System Prompt
-
-```
-You are a culinary adaptation assistant specializing in dietary-compliant recipe transformation.
-
-Given a recipe and a dietary constraint, you must:
-1. Replace all non-compliant ingredients with appropriate substitutes
-2. Adjust cooking instructions to reflect ingredient changes
-3. Preserve the original dish's flavor profile and cultural identity
-4. Provide clear substitution rationale for each change
-
-Output format:
-- Substitution Plan:
-- Adapted Ingredients:
-- Adapted Steps:
-- Flavor Preservation Notes:
-- Constraint Check:
-```
+One JSON object per line with a `messages` array.
+Only export `messages` from kept rows; internal fields (`audit_scores`, `replacement_pairs`, `template_id`, `kb_*`) stay in `internal_master`.
 
 ## Training Workflow (Mistral API)
 
@@ -132,220 +350,186 @@ from mistralai import Mistral
 
 client = Mistral(api_key=os.environ["MISTRAL_API_KEY"])
 
-# Upload data
 train_file = client.files.upload(
-    file={"file_name": "train.jsonl", "content": open("data/train.jsonl", "rb")}
+    file={"file_name": "train_filtered.jsonl", "content": open("data/train_filtered.jsonl", "rb")}
 )
 val_file = client.files.upload(
-    file={"file_name": "valid.jsonl", "content": open("data/valid.jsonl", "rb")}
+    file={"file_name": "valid_filtered.jsonl", "content": open("data/valid_filtered.jsonl", "rb")}
 )
 
-# Create fine-tuning job with W&B integration
 job = client.fine_tuning.jobs.create(
     model="mistral-small-latest",
     training_files=[{"file_id": train_file.id, "weight": 1}],
     validation_files=[val_file.id],
     hyperparameters={"training_steps": 100, "learning_rate": 1e-4},
     auto_start=False,
-    integrations=[{
-        "project": "recipe-remix",
-        "api_key": os.environ["WANDB_API_KEY"]
-    }],
-    suffix="recipe-remix",
+    integrations=[{"project": "recipe-remix", "api_key": os.environ["WANDB_API_KEY"]}],
+    suffix="recipe-remix-foodcom-synth",
 )
 
-# Start and monitor
 client.fine_tuning.jobs.start(job_id=job.id)
 status = client.fine_tuning.jobs.get(job_id=job.id)
-# status.status: QUEUED -> STARTED -> RUNNING -> SUCCESS
-# status.fine_tuned_model: use this ID for inference
-```
-
-## Inference
-
-```python
-response = client.chat.complete(
-    model=status.fine_tuned_model,  # e.g. "ft:mistral-small-latest:xxxxx"
-    messages=[{"role": "user", "content": prompt}]
-)
 ```
 
 ## Evaluation: Deterministic + LLM-as-Judge
 
-**Deterministic compliance** (`eval/constraints.json`): banned ingredient lists per dietary constraint. `constraint_pass_rate` = (examples with 0 violations) / total.
+- Deterministic compliance uses `eval/constraints.json`.
+- LLM-as-judge (Mistral Large) rates: compliance, flavor fidelity, dish identity preservation, explanation quality.
 
-**LLM-as-Judge** (Mistral Large): rates adapted recipes on compliance, flavor fidelity, cultural/dish identity preservation, and explanation quality (1-10 each). Returns structured JSON.
+### Evaluation stages
 
-**Two-stage evaluation**:
-1. **Quick gate**: 50 held-out examples for fast iterate/no-iterate decision.
-2. **Final freeze**: 150 held-out examples on best run for submission metrics.
-3. **Hard-case A/B**: 30 curated hard cases, blind pairwise comparison (base vs fine-tuned).
+1. **Quick gate**: 50 held-out examples (`quick50`)
+2. **Final freeze**: 150 held-out examples (`final150`)
+3. **Hard-case A/B**: 30 curated cases (`hard30`)
 
-Use the same examples/prompts for base and fine-tuned runs. The score delta is the headline number.
+Primary headline metrics:
 
-Hard-case success metric:
-- `hard_case_win_rate` = percentage of hard cases where judge prefers fine-tuned output over base.
-- Target for strong claim: `hard_case_win_rate >= 60%`.
+- `constraint_pass_rate` delta (base vs fine-tuned)
+- `avg_judge_score` delta
+- `hard_case_win_rate`
 
 ## Demo (Marimo)
 
-`uv run marimo run demo/demo.py` launches an interactive web app:
-1. Input: dish/recipe text (free-form)
-2. Input: dietary requirement (free text or dropdown presets)
-3. Input: must-keep flavor notes (optional but recommended)
-4. Text area: paste a recipe OR select from pre-loaded examples
-5. Button: "Remix!"
-6. Side-by-side: base model vs fine-tuned model responses
-7. Judge scores: Mistral Large rates both outputs live (with cached fallback)
-8. Compliance check: pass/fail with violations highlighted
+Run with:
 
-Demo reliability rule:
-- Precompute and cache at least 5 representative examples (base output, fine-tuned output, judge scores, compliance results).
-- If live API is slow/failing, switch to cached mode and continue demo.
+```bash
+uv run marimo run demo/demo.py
+```
 
-## W&B Integration
+Demo must include:
 
-- **Automatic**: `integrations` parameter sends training metrics to W&B. Zero custom code.
-- **Manual**: Log comparison metrics (base vs fine-tuned) and artifacts after evaluation.
-- **Team setup**: both workspaces log into the same W&B project/entity for shared visibility.
-- **Bonus**: W&B Weave traces, Report, mini challenge.
+1. Free-form dish input
+2. Dietary requirement input
+3. Optional must-keep flavor notes
+4. Base vs fine-tuned side-by-side outputs
+5. Judge score comparison
+6. Compliance check with violation highlights
+
+Reliability rule:
+
+- Cache at least 5 representative examples with precomputed judge/compliance outputs.
+- If live API is unstable, switch to cached mode.
 
 ## File Structure
 
 | File | Purpose |
-|------|---------|
-| `data/prepare.py` | Dataset download, constraint parsing, JSONL conversion |
-| `train/finetune.py` | Mistral API: upload data, create job, start, monitor |
-| `eval/evaluate.py` | Deterministic compliance + LLM-as-judge via Mistral Large |
-| `eval/baseline.py` | Base model evaluation (same harness, base model ID) |
-| `eval/hard_cases.jsonl` | Curated non-trivial dish adaptation cases with flavor anchors |
-| `eval/constraints.json` | Banned ingredient lists per dietary constraint |
-| `demo/demo.py` | Marimo interactive demo app |
-| `scripts/log_artifacts.py` | W&B artifact + eval metric logging |
-| `scripts/hf_publish.py` | HuggingFace publication (data, eval, model card) |
+|---|---|
+| `data/prepare.py` | Food.com ingest, source-pool curation, synthetic candidate generation hooks |
+| `data/audit_dataset.py` | Deterministic scoring and keep/drop decisions |
+| `train/finetune.py` | Mistral fine-tuning orchestration |
+| `eval/baseline.py` | Base model eval on quick/final/hard splits |
+| `eval/evaluate.py` | Fine-tuned model eval on quick/final/hard splits |
+| `eval/hard_cases.jsonl` | Curated hard adaptation set |
+| `eval/constraints.json` | Constraint banned-term rules |
+| `kb/swaps_v0.json` | Required substitution knowledge base (20-30+ curated swap rules) |
+| `scripts/log_artifacts.py` | W&B artifact/metrics logging |
+| `scripts/hf_publish.py` | HF publication for dataset/results/model card |
 
 ## 2-Day Timeline
 
 ### Day 1: Saturday, February 28, 2026 (10:00-19:00 JST)
 
-**Block 1 (10:00-12:00): Environment + Data Pipeline + Quality Gate [120 min]**
-- Verify env: `MISTRAL_API_KEY`, add `WANDB_API_KEY`, `HF_TOKEN` to `.env`
-- Initialize project (one-time, if missing): `uv init --python 3.11`
-- Add deps: `uv add mistralai wandb marimo datasets rich`
-- Sync env: `uv sync`
-- Run `uv run python data/prepare.py` — download, parse, convert to JSONL
-- Validate JSONL, spot-check 10 examples
-- Run mandatory quality gate checks on 100 random rows
-- **Exit**: quality gate passes and `data/train.jsonl`, `data/valid.jsonl`, `data/eval_holdout.jsonl` exist
+**Block 1 (10:00-12:00): Env + Food.com Ingest + Source Curation [120 min]**
 
-**Block 2 (12:00-13:00): Upload + Launch Fine-Tuning [60 min]**
-- Run `uv run python train/finetune.py` — upload files, create job, start training
-- Verify job status is RUNNING and W&B dashboard shows metrics
-- **Exit**: Job running server-side. Build everything else while it trains.
+- Verify env keys and `uv` tooling.
+- Run Food.com ingest and source-pool selection.
+- Produce `artifacts/source_pool_summary.json`.
+- Exit gate: curated source pool exists and parse checks pass.
 
-**Block 3 (13:00-15:00): Baseline Eval + Eval Harness (WHILE TRAINING RUNS) [120 min]**
-- Run `uv run python eval/baseline.py` — 50 held-out examples through base model
-- Record baseline `constraint_pass_rate`, `format_pass_rate`, avg judge scores
-- Build `eval/hard_cases.jsonl` (30 curated transformation-heavy cases)
-- Log baseline to W&B
-- **Exit**: Baseline numbers recorded, hard-case bank ready, eval harness ready for fine-tuned model
+**Block 2 (12:00-14:00): Synthetic Generation + Audit Loop [120 min]**
 
-**Block 4 (15:00-16:00): Fine-Tuned Quick Eval + Comparison [60 min]**
-- Check fine-tuning job status (should be done by now)
-- Run `uv run python eval/evaluate.py --model ft:xxx --tag finetuned --split quick50`
-- Run hard-case pairwise A/B eval (`base` vs `ft`) on 30 curated cases
-- Run `uv run python scripts/log_artifacts.py` to log comparison to W&B
+- Generate candidate 1 for each source recipe with `mistral-large-latest` (Workspace B).
+- Trigger candidate 2 only on failed candidate 1 (`constraint_pass==0` or low plausibility).
+- Run 4 deterministic assistant completeness checks on each candidate before it enters `internal_master` (reject `...`, reject unparseable ingredients, reject unmapped violations, reject banned-term leakage).
+- Audit and retain one best passing candidate per source.
+- Continue until `1200` filtered pairs OR stop condition.
+- Produce `artifacts/synthetic_generation_summary.json` and `artifacts/dataset_audit_summary.json`.
+- **Hard gate**: do not start fine-tuning until 1200-pair and quality-gate criteria are met.
 
-**KILL SWITCH 1 (16:00)**: `constraint_pass_rate` improved >= +5% OR avg judge score >= +0.5 OR `hard_case_win_rate >= 60%`?
-- YES → Block 5A (demo build)
-- NO → Block 5B (contingency Run #2 on teammate workspace with adjusted hyperparams)
+**Block 3 (14:00-15:00): Upload + Launch Fine-Tuning [60 min]**
 
-**Block 5A (16:00-18:00): Build Demo [120 min]**
-- Build Marimo demo, pre-load example recipes
-- Test 3 consecutive runs
+- Upload `train_filtered.jsonl` / `valid_filtered.jsonl`.
+- Launch fine-tune in Workspace A.
+- Confirm RUNNING status + W&B metrics.
 
-**Block 5B (16:00-18:00): Run #2 + Demo [120 min]**
-- Launch Run #2 in Workspace B, build demo against Run #1 model meanwhile
+**Block 4 (15:00-16:00): Baseline + Quick Eval [60 min]**
 
-**Block 6 (18:00-19:00): Day 1 Gate [60 min]**
-- Gate check: fine-tuned model works, measurable improvement, demo runs, W&B logs clean
+- Run baseline on `quick50`.
+- Run fine-tuned quick eval when model is ready.
+- Run `hard30` pairwise quick comparison.
 
-**KILL SWITCH 2 (19:00)**: ANY measurable improvement?
-- YES → Day 2 is polish + publish
-- NO → Pivot A (honest negative result) or Pivot B/C (hyperparameter retry or more steps)
+**KILL SWITCH 1 (16:00)**
+
+Proceed to demo build only if one holds:
+
+- `constraint_pass_rate` improvement `>= +5%`, or
+- `avg_judge_score` improvement `>= +0.5`, or
+- `hard_case_win_rate >= 60%`
+
+If not met: run one contingency tuning iteration within remaining budget.
 
 ### Day 2: Sunday, March 1, 2026 (09:00-16:00 JST)
 
-**Block 7 (09:00-11:00): Final Eval + Publish [120 min]**
-- Full LLM-as-judge on best model (`final150`), freeze metrics
-- Re-run hard-case A/B on final candidate and freeze `hard_case_win_rate`
-- Run `uv run python scripts/hf_publish.py` — publish to HuggingFace
-- Log final artifacts to W&B
+**Block 5 (09:00-11:00): Final Eval Freeze [120 min]**
 
-**Block 8 (11:00-13:00): Demo Hardening + Rehearsal [120 min]**
-- Polish Marimo demo, 3 consecutive runs, record backup video
+- Execute `final150` and `hard30` on best model.
+- Run manual 30-row plausibility review (`>= 85%`) on kept training set sample.
+- Freeze metrics and artifacts.
 
-**Block 9 (13:00-14:30): Buffer + Bonus [90 min]**
-- Bug fixes, prepare display materials
-- *(bonus)* W&B Weave traces, Report, mini challenge
-- **14:30**: Submission freeze
+**Block 6 (11:00-13:00): Demo Hardening [120 min]**
 
-**Block 10 (14:30-15:30): Final Prep [60 min]**
-- Final dry run, pitch talking points
-- **15:30**: Hands off. **16:00**: Judging starts.
+- Polish demo flow and fallback mode.
+- Rehearse 3 full runs.
 
-## Team Execution Split (2 Members, Up To Before Block 5A)
+**Block 7 (13:00-14:30): Publish + Submission Prep [90 min]**
 
-Owners:
-- **Member A (Model/Infra owner)**: environment, data pipeline, fine-tuning job lifecycle, ft model handoff.
-- **Member B (Eval/Evidence owner)**: baseline and hard-case evaluation, judge outputs, W&B comparison evidence.
+- Publish dataset summary/results/model card.
+- Final W&B artifact logging.
 
-Execution matrix (Day 1, Saturday, February 28, 2026):
+**Block 8 (14:30-15:30): Final Dry Run [60 min]**
 
-| Time (JST) | Member A (Model/Infra) | Member B (Eval/Evidence) | Required Handoff Artifact |
-|---|---|---|---|
-| 10:00-10:20 | Align response contract and output schema used in training/eval/demo | Align judge rubric and hard-case schema | `docs/handoffs/H0_contract.md` |
-| 10:20-11:20 | Run `uv init`/`uv add`/`uv sync`; run `uv run python data/prepare.py` | Draft `eval/hard_cases.jsonl` structure and judge prompt template | `data/train.jsonl`, `data/valid.jsonl`, `eval/hard_cases.jsonl` (draft) |
-| 11:20-12:00 | Run automated quality checks (parse, constraint, duplicates, non-triviality) | Run manual flavor-preservation plausibility spot checks | `docs/handoffs/H1_quality_gate.md` |
-| 12:00-13:00 | Launch fine-tune in Workspace A; verify RUNNING and integrations | Finalize baseline harness and scoring output schema | `docs/handoffs/H2_job_launch.md` (job id, run URL, start time) |
-| 13:00-15:00 | Monitor job state; prepare ft inference command and contingency script for Workspace B | Run baseline on `quick50`; finalize 30 hard cases; log baseline to W&B | `artifacts/baseline_metrics.json`, `docs/handoffs/H3_baseline.md` |
-| 15:00-15:50 | Run fine-tuned quick eval and export outputs | Run hard-case pairwise A/B judge and compute `hard_case_win_rate` | `artifacts/finetuned_metrics.json`, `artifacts/hard_case_ab.json` |
-| 15:50-16:00 | Joint kill-switch review and decision | Joint kill-switch review and decision | `docs/handoffs/H4_decision.md` (`GO_5A` or `RUN_5B`) |
+- Final script/pitch rehearsal.
 
-Task ticket template (use for every assigned task):
-1. `Task`
-2. `Owner`
-3. `Start-End (JST)`
-4. `Inputs`
-5. `Command(s)`
-6. `Output artifact path`
-7. `Definition of done` (binary pass/fail)
-8. `Fallback if blocked >15 min`
+## Team Execution Split (Up to Pre-Demo Gate)
 
-Coordination rules:
-1. No task starts without an output artifact path.
-2. If blocked for >15 minutes, escalate to the other member and continue with fallback.
-3. Every handoff artifact must include timestamp, owner, and next expected action.
+- **Member A (Model/Infra)**:
+  - Food.com ingest and source curation
+  - fine-tune orchestration
+  - model ID handoffs
+- **Member B (Data/Eval)**:
+  - synthetic generation monitoring
+  - audit reporting
+  - baseline/final evaluation and hard-case scoring
 
-## Fallback Strategies
+Required handoff artifacts remain in `docs/handoffs/H0` to `H4` with timestamps and owners.
 
-**Pivot A — Honest Negative Result**: Document WHY fine-tuning didn't help. Show analysis. Judges respect honest technical work.
+## Fallback and Stop Policy
 
-**Pivot B — Hyperparameter Retry**: Keep same base model and adjust `training_steps` / learning rate for one backup run.
-
-**Pivot C — More Training Steps**: Launch longer job overnight if API allows.
+1. If Food.com ingest is blocked (access/tooling/legal), **pause execution** and re-evaluate strategy.
+2. Do not silently switch source dataset in the active plan.
+3. If quality gate fails, prioritize fixing generation/audit before spending fine-tune credits.
 
 ## Acceptance Criteria (Must-Have)
 
-1. Fine-tuned model improves over base: `constraint_pass_rate` >= +5% or `avg_score` >= +0.5
-2. Creativity/usefulness proof: `hard_case_win_rate >= 60%` on 30 curated transformation-heavy cases
-3. W&B Models: training/eval metrics logged, artifacts logged
-4. HF publication: data, eval results, model card with fine-tuned model ID
-5. Live demo: Marimo app with base vs fine-tuned side-by-side + judge scores + substitution rationale
-6. Demo reliability: 3 consecutive runs without failure (live or cached mode)
+1. Synthetic dataset target met: `1200` filtered pairs from adaptive candidate policy.
+2. Synthetic quality gates pass:
+  - `constraint_pass_rate_on_kept >= 98%`
+  - `semantic_completeness_pass_rate_on_kept = 100%`
+  - `assistant_completeness_validation_pass_rate_on_kept = 100%`
+  - `mean_relevance_score_on_kept >= 0.55`
+  - `mean_substitution_plausibility_score_on_kept >= 0.65`
+  - nontrivial adaptation pass rate (`nontriviality_score >= 0.5`) `>= 90%`
+  - template mix near `50/30/20` (`+/-10` points per bucket)
+  - manual 10-row pre-FT spot-check pass `>= 80%`
+  - manual 30-row final-freeze plausibility pass `>= 85%`
+3. Fine-tuned model improves over base (`+5%` pass rate or `+0.5` judge score or `hard_case_win_rate >= 60%`).
+4. W&B metrics and artifacts are complete.
+5. Demo passes 3 consecutive runs (live or cached mode).
 
 ## Source References
 
 - Mistral fine-tuning docs: <https://docs.mistral.ai/capabilities/finetuning/>
 - W&B hackathon page: <https://www.notion.so/wandbai/W-B-at-Mistral-Worldwide-Hackathon-2026-311e2f5c7ef3806c8b01fc18b21757c4>
-- Dataset: <https://huggingface.co/datasets/Sohy/RecipePair>
+- Food.com Kaggle dataset: <https://www.kaggle.com/datasets/irkaal/foodcom-recipes-and-reviews/data>
+- Food.com paper (EMNLP 2019): <https://aclanthology.org/D19-1613/>
+- Rejected baseline evidence (RecipePair): <https://huggingface.co/datasets/Sohy/RecipePair>

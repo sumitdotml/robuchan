@@ -80,3 +80,39 @@ Use this exact shape for new entries.
   - file:PLAN.md:75
   - file:PLAN.md:239
   - file:PLAN.md:197
+
+### MISTAKE-20260228-002
+- id: MISTAKE-20260228-002
+- status: active
+- severity: medium
+- scope_tags: [planning, docs]
+- pattern: stale policy wording left in related docs after switching a core plan contract
+- prevention_rule: after policy pivots, run a cross-file grep for old and new policy terms and update all references before finalizing
+- validation_check: verify PLAN.md, CONSIDERING.md, and LOG.md consistently reference adaptive candidate policy and 1200 target with no stale fixed-policy wording
+- first_seen: 2026-02-28
+- last_seen: 2026-02-28
+- occurrence_count: 2
+- evidence:
+  - file:PLAN.md:32
+  - file:CONSIDERING.md:50
+  - file:LOG.md:25
+  - file:PLAN.md:6
+  - file:CONSIDERING.md:52
+  - file:LOG.md:46
+
+### MISTAKE-20260228-003
+- id: MISTAKE-20260228-003
+- status: active
+- severity: medium
+- scope_tags: [planning, docs]
+- pattern: explicit rule text contradicts examples in the same or linked docs
+- prevention_rule: after policy edits, run a rule-vs-example alignment pass and either update examples or relax the rule wording before finalizing
+- validation_check: verify no hard prohibition in response/export contract is violated by the canonical examples in PLAN.md and DATASET_SCHEMA.md
+- first_seen: 2026-02-28
+- last_seen: 2026-02-28
+- occurrence_count: 1
+- evidence:
+  - file:PLAN.md:66
+  - file:PLAN.md:226
+  - file:DATASET_SCHEMA.md:142
+  - file:DATASET_SCHEMA.md:166

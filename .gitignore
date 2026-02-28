@@ -19,3 +19,7 @@ train/job_result.json
 *.egg-info/
 dist/
 build/
+
+.hf_cache
+artifacts/
+.hf-cache/
