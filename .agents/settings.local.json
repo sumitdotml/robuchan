@@ -3,7 +3,13 @@
     "allow": [
       "WebFetch(domain:docs.mistral.ai)",
       "WebFetch(domain:mistral.ai)",
-      "mcp__plugin_context7_context7__query-docs"
+      "mcp__plugin_context7_context7__query-docs",
+      "WebFetch(domain:www.notion.so)",
+      "WebFetch(domain:wandb.ai)",
+      "WebFetch(domain:worldwide-hackathon.mistral.ai)",
+      "mcp__plugin_context7_context7__resolve-library-id",
+      "WebFetch(domain:docs.wandb.ai)",
+      "WebFetch(domain:machinelearning.apple.com)"
     ]
   },
   "hooks": {

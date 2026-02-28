@@ -8,3 +8,14 @@ __pycache__/
 
 node_modules
 node_modules/
+
+# Generated data
+data/*.jsonl
+eval/results_*.json
+train/job_result.json
+
+# Python
+*.pyc
+*.egg-info/
+dist/
+build/
