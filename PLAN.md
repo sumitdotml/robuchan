@@ -424,6 +424,7 @@ Reliability rule:
 - Produce `artifacts/source_pool_summary.json`.
 - Run constraints coverage check: extract unique ingredients from source pool, cross-reference against `eval/constraints.json`, extend banned lists with discovered gaps. Must pass before Block 2.
 - Exit gate: curated source pool exists, parse checks pass, and constraints coverage validated.
+- Execution: `uv run python data/prepare.py ingest`
 
 **Block 2 (12:00-14:00): Synthetic Generation + Audit Loop [120 min]**
 
@@ -434,6 +435,10 @@ Reliability rule:
 - Continue until `1200` filtered pairs OR stop condition.
 - Produce `artifacts/synthetic_generation_summary.json` and `artifacts/dataset_audit_summary.json`.
 - **Hard gate**: do not start fine-tuning until 1200-pair and quality-gate criteria are met.
+- Execution: `uv run python data/prepare.py generate`
+  - `sh watch-progress.sh`: prints the current number of records in the generated records every minute.
+  - `uv run python data/audit_dataset.py gate` runs quality metrics. Output in `data/gate.log`.
+  - Extra: `uv run python data/plot_response_times.py` generates `data/response_times.png`, a graph of Mistral API's latency as a function of time.
 
 **Block 3 (14:00-15:00): Upload + Launch Fine-Tuning [60 min]**
 

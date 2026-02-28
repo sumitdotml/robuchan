@@ -37,3 +37,4 @@ ideas/
 docs/
 .venv/
 .agents/
+*.png

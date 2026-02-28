@@ -1,0 +1,27 @@
+uv run python data/audit_dataset.py gate                            2203ms  Sat 28 February 2026 11:29:46 PM
+Running quality gate on /Users/kaustubh/GitHub/hackathons/mistral-hackathon-2026/data/internal_master.jsonl...
+  Auditing kept rows  constraint_pass:1059/1059  comp_ok:1055/1059 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ 1059/1059 0:00:14
+                                            Quality Gate Metrics
+┏━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┳━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┳━━━━━━━━━━━━┳━━━━━━━━┓
+┃ Metric                                              ┃ Value                         ┃ Expected   ┃ Status ┃
+┡━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━╇━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━╇━━━━━━━━━━━━╇━━━━━━━━┩
+│ total_rows                                          │ 1059                          │            │        │
+│ kept_rows                                           │ 1059                          │            │        │
+│ constraint_pass_rate_on_kept                        │ 1.0                           │ >= 0.98    │ PASS   │
+│ semantic_completeness_pass_rate_on_kept             │ 1.0                           │ == 1.0     │ PASS   │
+│ assistant_completeness_validation_pass_rate_on_kept │ 0.9962                        │ == 1.0     │ FAIL   │
+│ mean_relevance_score_on_kept                        │ 0.5216                        │ >= 0.55    │ FAIL   │
+│ nontrivial_adaptation_pass_rate_on_kept             │ 0.9887                        │ >= 0.9     │ PASS   │
+│ template_a_fraction                                 │ 0.711                         │ [0.4, 0.6] │ FAIL   │
+│ template_b_fraction                                 │ 0.0415                        │ [0.2, 0.4] │ FAIL   │
+│ template_c_fraction                                 │ 0.2474                        │ [0.1, 0.3] │ PASS   │
+│ template_distribution                               │ {'A': 753, 'C': 262, 'B': 44} │            │        │
+└─────────────────────────────────────────────────────┴───────────────────────────────┴────────────┴────────┘
+
+GATE FAILED
+  ✗ assistant_completeness_validation_pass_rate_on_kept: 0.9962 != 1.0 (gate: ==)
+  ✗ mean_relevance_score_on_kept: 0.5216 < 0.55 (gate: >=)
+  ✗ template_a_fraction: 0.711 not in [0.4, 0.6]
+  ✗ template_b_fraction: 0.0415 not in [0.2, 0.4]
+
+Report saved to /Users/kaustubh/GitHub/hackathons/mistral-hackathon-2026/artifacts/quality_gate_report.json
