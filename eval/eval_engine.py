@@ -482,6 +482,22 @@ def read_model_from_manifest(manifest_path: Path) -> str | None:
     return model.strip()
 
 
+def to_optional_float(value: Any) -> float | None:
+    if isinstance(value, bool):
+        return None
+    if isinstance(value, (int, float)):
+        return float(value)
+    if isinstance(value, str):
+        text = value.strip()
+        if not text:
+            return None
+        try:
+            return float(text)
+        except ValueError:
+            return None
+    return None
+
+
 def compute_summary(
     row_results: list[dict[str, Any]],
     eval_prompt_tokens: int,
@@ -500,16 +516,31 @@ def compute_summary(
         for row in row_results
         if row["constraint_pass"] is not None
     ]
-    judge_scores = [
-        float(row["judge"].get("overall_score"))
-        for row in row_results
-        if isinstance(row.get("judge"), dict) and row["judge"].get("overall_score") is not None
-    ]
-    compliance_scores = [
-        float(row["judge"].get("compliance"))
-        for row in row_results
-        if isinstance(row.get("judge"), dict) and row["judge"].get("compliance") is not None
-    ]
+    judge_scores: list[float] = []
+    compliance_scores: list[float] = []
+    judge_overall_invalid_rows = 0
+    judge_compliance_invalid_rows = 0
+    for row in row_results:
+        judge = row.get("judge")
+        if not isinstance(judge, dict):
+            continue
+
+        overall_raw = judge.get("overall_score")
+        if overall_raw is not None:
+            overall = to_optional_float(overall_raw)
+            if overall is None:
+                judge_overall_invalid_rows += 1
+            else:
+                judge_scores.append(overall)
+
+        compliance_raw = judge.get("compliance")
+        if compliance_raw is not None:
+            compliance = to_optional_float(compliance_raw)
+            if compliance is None:
+                judge_compliance_invalid_rows += 1
+            else:
+                compliance_scores.append(compliance)
+
     judge_total_rows = len(row_results) if judge_enabled else 0
     judge_scored_rows = len(judge_scores) if judge_enabled else 0
     judge_compliance_scored_rows = len(compliance_scores) if judge_enabled else 0
@@ -535,6 +566,7 @@ def compute_summary(
         "judge_enabled": judge_enabled,
         "judge_scored_rows": judge_scored_rows,
         "judge_missing_rows": judge_missing_rows,
+        "judge_overall_invalid_rows": judge_overall_invalid_rows if judge_enabled else 0,
         "judge_score_coverage": (
             judge_scored_rows / judge_total_rows if judge_total_rows else None
         ),
@@ -544,6 +576,7 @@ def compute_summary(
         "avg_judge_score_scored_rows": mean(judge_scores) if judge_scores else None,
         "judge_compliance_scored_rows": judge_compliance_scored_rows,
         "judge_compliance_missing_rows": judge_compliance_missing_rows,
+        "judge_compliance_invalid_rows": judge_compliance_invalid_rows if judge_enabled else 0,
         "avg_judge_compliance": (
             mean(compliance_scores)
             if judge_total_rows and judge_compliance_missing_rows == 0

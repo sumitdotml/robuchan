@@ -238,6 +238,26 @@ def normalize_rate(value: Any) -> float:
     return numeric
 
 
+def parse_int_like(value: Any) -> int | None:
+    if isinstance(value, bool):
+        return None
+    if isinstance(value, int):
+        return value
+    if isinstance(value, float):
+        if value.is_integer():
+            return int(value)
+        return None
+    if isinstance(value, str):
+        normalized = value.strip().replace(",", "")
+        if not normalized:
+            return None
+        try:
+            return int(normalized)
+        except ValueError:
+            return None
+    return None
+
+
 def evaluate_template_distribution(data: dict[str, Any]) -> tuple[bool, list[str]]:
     key, distribution = first_present_value(
         data,
@@ -317,15 +337,18 @@ def evaluate_quality_gate(
     if kept_value is None:
         report["errors"].append("missing kept_rows/final_kept_rows in quality gate summary")
     else:
-        kept_rows = int(kept_value)
-        if kept_rows < target_kept_rows:
-            report["errors"].append(
-                f"{kept_key}={kept_rows} below target_kept_rows={target_kept_rows}"
-            )
+        kept_rows = parse_int_like(kept_value)
+        if kept_rows is None:
+            report["errors"].append(f"{kept_key} has non-integer value {kept_value!r}")
         else:
-            report["checks"].append(
-                f"{kept_key}={kept_rows} meets target_kept_rows={target_kept_rows}"
-            )
+            if kept_rows < target_kept_rows:
+                report["errors"].append(
+                    f"{kept_key}={kept_rows} below target_kept_rows={target_kept_rows}"
+                )
+            else:
+                report["checks"].append(
+                    f"{kept_key}={kept_rows} meets target_kept_rows={target_kept_rows}"
+                )
 
     for requirement in QUALITY_GATE_REQUIREMENTS:
         key, value = first_present_value(summary, requirement["keys"])
