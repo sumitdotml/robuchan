@@ -199,7 +199,13 @@ def main() -> int:
             f"{args.valid_path} is {valid_stats.size_bytes} bytes, exceeds max {args.max_validation_bytes} bytes"
         )
 
-    all_errors = train_errors + valid_errors + size_error
+    non_empty_errors = []
+    if train_stats.exists and train_stats.record_count == 0:
+        non_empty_errors.append(f"{args.train_path} has zero records; training dataset must be non-empty")
+    if valid_stats.exists and valid_stats.record_count == 0:
+        non_empty_errors.append(f"{args.valid_path} has zero records; validation dataset must be non-empty")
+
+    all_errors = train_errors + valid_errors + size_error + non_empty_errors
     passed = len(all_errors) == 0
 
     summary = {
