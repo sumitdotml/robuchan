@@ -18,6 +18,15 @@ from collections import Counter
 from pathlib import Path
 from typing import Any
 
+from rich.progress import (
+    BarColumn,
+    MofNCompleteColumn,
+    Progress,
+    SpinnerColumn,
+    TextColumn,
+    TimeElapsedColumn,
+)
+
 # ---------------------------------------------------------------------------
 # Paths
 # ---------------------------------------------------------------------------
@@ -621,10 +630,14 @@ QUALITY_GATE_CHECKS = {
 }
 
 
-def run_quality_gate(master_path: Path) -> dict:
+def run_quality_gate(master_path: Path, console: Any | None = None) -> dict:
     """
     Load internal_master.jsonl, compute quality gate metrics, return report dict.
     """
+    from rich.console import Console
+    if console is None:
+        console = Console()
+
     constraints = load_constraints()
     aliases_data = load_aliases()
     kb_rules = load_kb()
@@ -655,28 +668,49 @@ def run_quality_gate(master_path: Path) -> dict:
     relevance_sum = 0.0
     plausibility_sum = 0.0
 
-    for row in kept:
-        scores = row.get("audit_scores", {})
-        messages = row.get("messages", [])
-        assistant_msg = next(
-            (m["content"] for m in messages if m["role"] == "assistant"), ""
-        )
-        detected_violations = row.get("detected_violations", [])
+    with Progress(
+        SpinnerColumn(),
+        TextColumn("[progress.description]{task.description}"),
+        BarColumn(),
+        MofNCompleteColumn(),
+        TimeElapsedColumn(),
+        console=console,
+        transient=False,
+    ) as progress:
+        task_id = progress.add_task("Auditing kept rows", total=len(kept))
 
-        comp_passed, _ = check_completeness_validation(
-            assistant_msg, detected_violations
-        )
-        if comp_passed:
-            completeness_passes += 1
+        for i, row in enumerate(kept, start=1):
+            scores = row.get("audit_scores", {})
+            messages = row.get("messages", [])
+            assistant_msg = next(
+                (m["content"] for m in messages if m["role"] == "assistant"), ""
+            )
+            detected_violations = row.get("detected_violations", [])
 
-        if scores.get("constraint_pass", 0) == 1:
-            constraint_passes += 1
-        if scores.get("nontriviality_score", 0) >= 0.5:
-            nontrivial_passes += 1
+            comp_passed, _ = check_completeness_validation(
+                assistant_msg, detected_violations
+            )
+            if comp_passed:
+                completeness_passes += 1
 
-        template_counts[row.get("template_id", "?")] += 1
-        relevance_sum += scores.get("relevance_score", 0.0)
-        plausibility_sum += scores.get("substitution_plausibility_score", 0.0)
+            if scores.get("constraint_pass", 0) == 1:
+                constraint_passes += 1
+            if scores.get("nontriviality_score", 0) >= 0.5:
+                nontrivial_passes += 1
+
+            template_counts[row.get("template_id", "?")] += 1
+            relevance_sum += scores.get("relevance_score", 0.0)
+            plausibility_sum += scores.get("substitution_plausibility_score", 0.0)
+
+            progress.update(
+                task_id,
+                advance=1,
+                description=(
+                    f"Auditing kept rows  "
+                    f"constraint_pass:{constraint_passes}/{i}  "
+                    f"comp_ok:{completeness_passes}/{i}"
+                ),
+            )
 
     n = len(kept)
     metrics = {
@@ -727,13 +761,19 @@ def export_to_jsonl(
     valid_path: Path,
     valid_fraction: float = 0.1,
     seed: int = 42,
+    console: Any | None = None,
 ) -> dict:
     """
     Export kept rows to train_filtered.jsonl and valid_filtered.jsonl.
     Only exports the 'messages' field (no audit metadata).
     Splits 90/10 train/valid deterministically (by row index).
+    Flushes to disk every 10 records.
     """
     import random
+    from rich.console import Console
+    if console is None:
+        console = Console()
+
     rng = random.Random(seed)
 
     rows = []
@@ -754,15 +794,36 @@ def export_to_jsonl(
 
     train_path.parent.mkdir(parents=True, exist_ok=True)
 
-    with open(train_path, "w") as f:
-        for row in train_rows:
-            export_row = {"messages": row["messages"]}
-            f.write(json.dumps(export_row, ensure_ascii=False) + "\n")
+    with Progress(
+        SpinnerColumn(),
+        TextColumn("[progress.description]{task.description}"),
+        BarColumn(),
+        MofNCompleteColumn(),
+        TimeElapsedColumn(),
+        console=console,
+        transient=False,
+    ) as progress:
+        train_task = progress.add_task(
+            f"Writing {train_path.name}", total=len(train_rows)
+        )
+        with open(train_path, "w") as f:
+            for i, row in enumerate(train_rows, start=1):
+                export_row = {"messages": row["messages"]}
+                f.write(json.dumps(export_row, ensure_ascii=False) + "\n")
+                if i % 10 == 0:
+                    f.flush()
+                progress.advance(train_task)
 
-    with open(valid_path, "w") as f:
-        for row in valid_rows:
-            export_row = {"messages": row["messages"]}
-            f.write(json.dumps(export_row, ensure_ascii=False) + "\n")
+        valid_task = progress.add_task(
+            f"Writing {valid_path.name}", total=len(valid_rows)
+        )
+        with open(valid_path, "w") as f:
+            for i, row in enumerate(valid_rows, start=1):
+                export_row = {"messages": row["messages"]}
+                f.write(json.dumps(export_row, ensure_ascii=False) + "\n")
+                if i % 10 == 0:
+                    f.flush()
+                progress.advance(valid_task)
 
     return {
         "total_kept": len(kept),
@@ -788,7 +849,7 @@ def cmd_gate(args):
         sys.exit(1)
 
     console.print(f"[bold]Running quality gate on {master}...[/bold]")
-    report = run_quality_gate(master)
+    report = run_quality_gate(master, console=console)
 
     table = Table(title="Quality Gate Metrics", show_header=True)
     table.add_column("Metric", style="cyan")
@@ -846,6 +907,7 @@ def cmd_export(args):
         valid_path=VALID_PATH,
         valid_fraction=args.valid_fraction,
         seed=args.seed,
+        console=console,
     )
     console.print(f"[green]Export complete[/green]")
     console.print(f"  Total kept:  {result['total_kept']}")

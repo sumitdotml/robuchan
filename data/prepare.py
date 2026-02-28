@@ -69,13 +69,15 @@ ALIASES_PATH = ROOT / "eval" / "category_aliases.json"
 KB_PATH = ROOT / "kb" / "swaps_v0.json"
 SOURCE_POOL_PATH = ROOT / "artifacts" / "source_pool_summary.json"
 INTERNAL_MASTER_PATH = ROOT / "data" / "internal_master.jsonl"
+REJECTED_LOG_PATH   = ROOT / "data" / "rejected_log.jsonl"
 ARTIFACTS_DIR = ROOT / "artifacts"
 KB_VERSION = "swaps_v0_2026-02-28"
 DEFAULT_TARGET_PAIRS = 1200
 DEFAULT_SOURCE_SIZE = 2000
-DEFAULT_CONCURRENCY = 2  # Defined by how soon you get rate limited by Mistral
-DEFAULT_MISTRAL_GEN_MODEL = "mistral-small-latest"
-API_TIMEOUT_SECS = 120  # Max seconds per Mistral call before treating as a hung connection
+DEFAULT_CONCURRENCY = 1024  # Defined by how soon you get rate limited by Mistral
+DEFAULT_RETRIES = 0 # we have enough data, don't retry
+DEFAULT_MISTRAL_GEN_MODEL = "mistral-large-latest"
+API_TIMEOUT_SECS = 60  # Max seconds per Mistral call before treating as a hung connection
 KAGGLE_DATASET = "irkaal/foodcom-recipes-and-reviews"
 
 # Token budget by richness tier — concise needs far fewer tokens than rich
@@ -995,19 +997,35 @@ def load_source_pool(pool_path: Path) -> list[dict]:
     return data.get("recipes", [])
 
 
-def load_processed_ids(master_path: Path) -> set[str]:
-    if not master_path.exists():
-        return set()
-    ids: set[str] = set()
-    with open(master_path) as f:
-        for line in f:
-            line = line.strip()
-            if line:
+def load_resume_state(
+    master_path: Path, rejected_path: Path
+) -> tuple[set[str], int]:
+    """Return (processed_ids, already_kept_count) for --resume.
+
+    processed_ids — union of IDs in internal_master.jsonl and rejected_log.jsonl.
+    already_kept_count — number of records in internal_master.jsonl with
+                         kept_for_training=True (or all lines if flag absent,
+                         for backwards compatibility with old mixed files).
+    """
+    processed_ids: set[str] = set()
+    already_kept_count = 0
+    for path in (master_path, rejected_path):
+        if not path.exists():
+            continue
+        with open(path) as f:
+            for line in f:
+                line = line.strip()
+                if not line:
+                    continue
                 try:
-                    ids.add(json.loads(line)["source_recipe_id"])
+                    row = json.loads(line)
+                    rid = row["source_recipe_id"]
+                    processed_ids.add(rid)
+                    if path == master_path and row.get("kept_for_training", True):
+                        already_kept_count += 1
                 except (json.JSONDecodeError, KeyError):
                     pass
-    return ids
+    return processed_ids, already_kept_count
 
 
 def _build_export_messages(prompt_messages: list[dict], parsed: dict) -> list[dict]:
@@ -1039,7 +1057,7 @@ def _build_master_row(
     template_id: str,
     richness_tier: str,
     completeness_ok: bool,
-    attempt_num: int,
+    candidate_num: int,
 ) -> dict:
     return {
         "source_recipe_id": recipe_id,
@@ -1053,7 +1071,7 @@ def _build_master_row(
         "audit_scores": audit_scores,
         "kept_for_training": False,  # finalized by caller
         "kb_version": KB_VERSION,
-        "generation_attempt_count": attempt_num,
+        "generation_candidate_num": candidate_num,
         "_completeness_ok": completeness_ok,  # internal flag, removed before write
     }
 
@@ -1066,6 +1084,7 @@ async def _run_generate_async(
     aliases_data: dict,
     kb_rules: list,
     console,
+    already_kept_count: int = 0,
 ) -> dict:
     """Async inner loop: processes todo recipes with up to args.concurrency parallel API calls.
 
@@ -1079,8 +1098,11 @@ async def _run_generate_async(
         "gen_total": 0,
         "candidate2_count": 0,
         "reject_counts": Counter(),
+        "accept_counts": Counter(),
     }
     stop_event = asyncio.Event()
+    if already_kept_count >= args.target_pairs:
+        stop_event.set()
     sem = asyncio.Semaphore(args.concurrency)
 
     console.print(
@@ -1093,18 +1115,23 @@ async def _run_generate_async(
     INTERNAL_MASTER_PATH.parent.mkdir(parents=True, exist_ok=True)
     open_mode = "a" if args.resume else "w"
 
-    with open(INTERNAL_MASTER_PATH, open_mode) as master_file, Progress(
-        SpinnerColumn(),
-        TextColumn("[progress.description]{task.description}"),
-        BarColumn(),
-        MofNCompleteColumn(),
-        TimeElapsedColumn(),
-        console=console,
-        transient=False,
-    ) as progress:
+    with (
+        open(INTERNAL_MASTER_PATH, open_mode) as master_file,
+        open(REJECTED_LOG_PATH, open_mode) as rejected_file,
+        Progress(
+            SpinnerColumn(),
+            TextColumn("[progress.description]{task.description}"),
+            BarColumn(),
+            MofNCompleteColumn(),
+            TimeElapsedColumn(),
+            console=console,
+            transient=False,
+        ) as progress,
+    ):
         task_id = progress.add_task(
-            f"Generating (kept: 0/{args.target_pairs})",
+            f"Generating (kept: {already_kept_count}/{args.target_pairs})",
             total=args.target_pairs,
+            completed=already_kept_count,
         )
 
         async def process_one(recipe_entry: dict) -> None:
@@ -1139,7 +1166,7 @@ async def _run_generate_async(
 
             best_row: dict | None = None
 
-            for attempt_num in range(1, 3):
+            for candidate_num in range(1, 3):
                 if stop_event.is_set():
                     break
 
@@ -1147,16 +1174,16 @@ async def _run_generate_async(
                 # The await inside holds the slot until the HTTP response returns,
                 # letting other coroutines proceed with CPU work in between.
                 progress.console.print(
-                    f"[dim]  {recipe_id}  attempt={attempt_num}  waiting for semaphore slot…[/dim]"
+                    f"[dim]  {recipe_id}  candidate={candidate_num}  waiting for semaphore slot…[/dim]"
                 )
                 async with sem:
                     if stop_event.is_set():
                         break
                     state["gen_total"] += 1
-                    if attempt_num == 2:
+                    if candidate_num == 2:
                         state["candidate2_count"] += 1
                     progress.console.print(
-                        f"[cyan]  {recipe_id}  attempt={attempt_num}"
+                        f"[cyan]  {recipe_id}  candidate={candidate_num}"
                         f"  calling {args.model}"
                         f"  (gen_total={state['gen_total']})[/cyan]"
                     )
@@ -1173,16 +1200,17 @@ async def _run_generate_async(
                     except Exception as e:
                         elapsed = time.monotonic() - t0
                         state["reject_counts"]["api_error"] += 1
+                        total_kept = already_kept_count + state["kept_count"]
                         progress.console.print(
-                            f"[red]  {recipe_id}  attempt={attempt_num}"
+                            f"[red]  {recipe_id}  candidate={candidate_num}"
                             f"  API ERROR after {elapsed:.1f}s"
-                            f"  (gen:{state['gen_total']} kept:{state['kept_count']}): {e}[/red]"
+                            f"  (gen:{state['gen_total']} kept:{total_kept}): {e}[/red]"
                         )
                         progress.update(
                             task_id,
                             description=(
                                 f"gen:{state['gen_total']} "
-                                f"kept:{state['kept_count']}/{args.target_pairs} "
+                                f"kept:{total_kept}/{args.target_pairs} "
                                 f"avail:{len(todo)} "
                                 f"err:{state['reject_counts']['api_error']}"
                             ),
@@ -1192,12 +1220,12 @@ async def _run_generate_async(
                     if assistant_content is None:
                         state["reject_counts"]["api_error"] += 1
                         progress.console.print(
-                            f"[red]  {recipe_id}  attempt={attempt_num}"
+                            f"[red]  {recipe_id}  candidate={candidate_num}"
                             f"  API returned None content after {elapsed:.1f}s[/red]"
                         )
                         continue
                     progress.console.print(
-                        f"[green]  {recipe_id}  attempt={attempt_num}"
+                        f"[green]  {recipe_id}  candidate={candidate_num}"
                         f"  response received in {elapsed:.1f}s"
                         f"  chars={len(assistant_content)}[/green]"
                     )
@@ -1205,7 +1233,7 @@ async def _run_generate_async(
                 # CPU-bound scoring runs outside the semaphore so the slot is
                 # freed for another recipe to start its API call immediately.
                 progress.console.print(
-                    f"[dim]  {recipe_id}  attempt={attempt_num}  scoring…[/dim]"
+                    f"[dim]  {recipe_id}  candidate={candidate_num}  scoring…[/dim]"
                 )
                 try:
                     scores_raw = score_candidate(
@@ -1227,13 +1255,13 @@ async def _run_generate_async(
                 except Exception as score_err:
                     state["reject_counts"]["scoring_error"] += 1
                     progress.console.print(
-                        f"[red]  {recipe_id}  attempt={attempt_num}"
+                        f"[red]  {recipe_id}  candidate={candidate_num}"
                         f"  SCORING ERROR — {type(score_err).__name__}: {score_err}[/red]"
                     )
                     return
 
                 progress.console.print(
-                    f"[dim]  {recipe_id}  attempt={attempt_num}"
+                    f"[dim]  {recipe_id}  candidate={candidate_num}"
                     f"  constraint_pass={audit_scores.get('constraint_pass')}"
                     f"  relevance={audit_scores.get('relevance_score', 0):.2f}"
                     f"  plausibility={audit_scores.get('substitution_plausibility_score', 0):.2f}"
@@ -1243,7 +1271,7 @@ async def _run_generate_async(
                 )
 
                 # Adaptive trigger: try candidate 2 on first failure
-                if attempt_num == 1 and should_trigger_candidate2(audit_scores):
+                if candidate_num == 1 and should_trigger_candidate2(audit_scores):
                     state["reject_counts"]["trigger_candidate2"] += 1
                     progress.console.print(
                         f"[yellow]  {recipe_id}  attempt=1  triggering candidate 2"
@@ -1252,14 +1280,14 @@ async def _run_generate_async(
                     best_row = _build_master_row(
                         recipe_id, recipe, restriction, violations,
                         parsed, prompt_messages, audit_scores,
-                        template_id, richness_tier, comp_passed, attempt_num,
+                        template_id, richness_tier, comp_passed, candidate_num,
                     )
-                    continue  # re-enter loop → attempt_num == 2
+                    continue  # re-enter loop → candidate_num == 2
 
                 best_row = _build_master_row(
                     recipe_id, recipe, restriction, violations,
                     parsed, prompt_messages, audit_scores,
-                    template_id, richness_tier, comp_passed, attempt_num,
+                    template_id, richness_tier, comp_passed, candidate_num,
                 )
                 break
 
@@ -1280,13 +1308,17 @@ async def _run_generate_async(
             )
             best_row["kept_for_training"] = kept
 
+            total_kept = already_kept_count + state["kept_count"]
             if kept:
                 state["kept_count"] += 1
-                if state["kept_count"] >= args.target_pairs:
+                total_kept += 1
+                cand_key = f"candidate_{best_row['generation_candidate_num']}"
+                state["accept_counts"][cand_key] += 1
+                if total_kept >= args.target_pairs:
                     stop_event.set()
                 progress.console.print(
                     f"[bold green]  ✓ KEPT  {recipe_id}"
-                    f"  kept={state['kept_count']}/{args.target_pairs}[/bold green]"
+                    f"  kept={total_kept}/{args.target_pairs}[/bold green]"
                 )
             else:
                 reject_reason = (
@@ -1302,19 +1334,24 @@ async def _run_generate_async(
             # Always refresh so gen_total is visible even when nothing is kept yet
             progress.update(
                 task_id,
-                completed=state["kept_count"],
+                completed=total_kept,
                 description=(
                     f"gen:{state['gen_total']} "
-                    f"kept:{state['kept_count']}/{args.target_pairs}"
+                    f"kept:{total_kept}/{args.target_pairs}"
                 ),
             )
 
-            # Single-threaded event-loop writes are never interleaved
-            master_file.write(json.dumps(best_row, ensure_ascii=False) + "\n")
-            if kept or state["gen_total"] % 50 == 0:
+            # Single-threaded event-loop writes are never interleaved.
+            # Kept records go to internal_master; rejected go to rejected_log.
+            if kept:
+                master_file.write(json.dumps(best_row, ensure_ascii=False) + "\n")
                 master_file.flush()
+            else:
+                rejected_file.write(json.dumps(best_row, ensure_ascii=False) + "\n")
+                if state["gen_total"] % 50 == 0:
+                    rejected_file.flush()
             progress.console.print(
-                f"[dim]← DONE  {recipe_id}  written to master[/dim]"
+                f"[dim]← DONE  {recipe_id}  {'master' if kept else 'rejected_log'}[/dim]"
             )
 
         batch_size = 100
@@ -1346,6 +1383,7 @@ async def _run_generate_async(
             f"  kept={state['kept_count']}"
             f"  api_errors={state['reject_counts'].get('api_error', 0)}"
             f"  candidate2={state['candidate2_count']}"
+            f"  accepts={dict(state['accept_counts'])}"
             f"  rejects={dict(state['reject_counts'])}"
             f"  unhandled_exceptions={len(all_exceptions)}[/bold]"
         )
@@ -1378,9 +1416,15 @@ def run_generate(args):
     console.print(f"[green]Source pool:[/green] {len(source_pool):,} recipes")
 
     processed_ids: set[str] = set()
+    already_kept_count = 0
     if args.resume:
-        processed_ids = load_processed_ids(INTERNAL_MASTER_PATH)
-        console.print(f"[yellow]Resume:[/yellow] {len(processed_ids):,} already processed")
+        processed_ids, already_kept_count = load_resume_state(
+            INTERNAL_MASTER_PATH, REJECTED_LOG_PATH
+        )
+        console.print(
+            f"[yellow]Resume:[/yellow] {len(processed_ids):,} already processed"
+            f" ({already_kept_count:,} kept)"
+        )
 
     todo = [r for r in source_pool if r["source_recipe_id"] not in processed_ids]
     console.print(
@@ -1397,13 +1441,16 @@ def run_generate(args):
             aliases_data=aliases_data,
             kb_rules=kb_rules,
             console=console,
+            already_kept_count=already_kept_count,
         )
     )
 
-    kept_count = state["kept_count"]
+    session_kept = state["kept_count"]
+    total_kept = already_kept_count + session_kept
     gen_total = state["gen_total"]
     candidate2_count = state["candidate2_count"]
     reject_counts = state["reject_counts"]
+    accept_counts = state["accept_counts"]
 
     # Write generation summary artifact
     ARTIFACTS_DIR.mkdir(parents=True, exist_ok=True)
@@ -1411,29 +1458,36 @@ def run_generate(args):
         "generated_at": datetime.now(timezone.utc).isoformat(),
         "model": args.model,
         "target_pairs": args.target_pairs,
-        "kept_pairs": kept_count,
+        "kept_pairs_total": total_kept,
+        "kept_pairs_this_session": session_kept,
+        "kept_pairs_from_resume": already_kept_count,
         "total_generated": gen_total,
         "candidate2_triggered": candidate2_count,
         "adaptive_rate": round(candidate2_count / max(1, gen_total), 4),
+        "accept_counts": dict(accept_counts),
         "reject_counts": dict(reject_counts),
         "concurrency": args.concurrency,
         "internal_master_path": str(INTERNAL_MASTER_PATH),
+        "rejected_log_path": str(REJECTED_LOG_PATH),
     }
     with open(ARTIFACTS_DIR / "synthetic_generation_summary.json", "w") as f:
         json.dump(gen_summary, f, indent=2)
 
-    color = "green" if kept_count >= args.target_pairs else "yellow"
-    status = "COMPLETE" if kept_count >= args.target_pairs else "PARTIAL"
+    color = "green" if total_kept >= args.target_pairs else "yellow"
+    status = "COMPLETE" if total_kept >= args.target_pairs else "PARTIAL"
     console.print(f"\n[bold {color}]Block 2 {status}[/bold {color}]")
-    console.print(f"  Kept pairs:   [cyan]{kept_count:,}[/cyan] / {args.target_pairs:,}")
-    console.print(f"  Generated:    [cyan]{gen_total:,}[/cyan] total candidates")
+    console.print(f"  Kept pairs:   [cyan]{total_kept:,}[/cyan] / {args.target_pairs:,}"
+                  + (f"  ({already_kept_count:,} from previous runs)" if already_kept_count else ""))
+    console.print(f"  Generated:    [cyan]{gen_total:,}[/cyan] total candidates this session")
     console.print(f"  Candidate 2:  [cyan]{candidate2_count:,}[/cyan] triggered")
+    console.print(f"  Accepts:      [cyan]{dict(accept_counts)}[/cyan]")
     console.print(f"  Concurrency:  [cyan]{args.concurrency}[/cyan] parallel API slots")
     console.print(f"  Master JSONL: [cyan]{INTERNAL_MASTER_PATH}[/cyan]")
+    console.print(f"  Rejected log: [cyan]{REJECTED_LOG_PATH}[/cyan]")
 
-    if kept_count < args.target_pairs:
+    if total_kept < args.target_pairs:
         console.print(
-            f"\n[yellow]Warning:[/yellow] Only {kept_count:,}/{args.target_pairs:,} pairs. "
+            f"\n[yellow]Warning:[/yellow] Only {total_kept:,}/{args.target_pairs:,} pairs. "
             "Increase source pool size or fix quality issues before fine-tuning."
         )
     else:
@@ -1464,8 +1518,8 @@ def main():
     gen_p.add_argument("--model", default=DEFAULT_MISTRAL_GEN_MODEL)
     gen_p.add_argument("--concurrency", type=int, default=DEFAULT_CONCURRENCY,
                        help=f"Max parallel API calls (default: {DEFAULT_CONCURRENCY})")
-    gen_p.add_argument("--num-retries", type=int, default=6,
-                       help="Max retries per API call on transient errors (default: 6)")
+    gen_p.add_argument("--num-retries", type=int, default=DEFAULT_RETRIES,
+                       help="Max retries per API call on transient errors (default: {DEFAULT_RETRIES})")
     gen_p.add_argument("--resume", action="store_true",
                        help="Append to existing internal_master.jsonl (skip processed IDs)")
 
