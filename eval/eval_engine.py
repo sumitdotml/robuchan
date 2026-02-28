@@ -540,6 +540,7 @@ def compute_summary(
                 judge_compliance_invalid_rows += 1
             else:
                 compliance_scores.append(compliance)
+
     judge_total_rows = len(row_results) if judge_enabled else 0
     judge_scored_rows = len(judge_scores) if judge_enabled else 0
     judge_compliance_scored_rows = len(compliance_scores) if judge_enabled else 0
