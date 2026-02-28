@@ -54,11 +54,15 @@ from rich.progress import (
     SpinnerColumn, TextColumn, TimeElapsedColumn,
 )
 from rich.table import Table
+from audit_dataset import (
+    score_candidate,
+    check_completeness_validation,
+    predict_step_ban_exposure,
+)
 
 load_dotenv()
 
 sys.path.insert(0, str(Path(__file__).parent))
-from audit_dataset import score_candidate, check_completeness_validation, predict_step_ban_exposure
 
 # ---------------------------------------------------------------------------
 # Paths and constants
@@ -66,7 +70,6 @@ from audit_dataset import score_candidate, check_completeness_validation, predic
 ROOT = Path(__file__).parent.parent
 CONSTRAINTS_PATH = ROOT / "eval" / "constraints.json"
 ALIASES_PATH = ROOT / "eval" / "category_aliases.json"
-KB_PATH = ROOT / "kb" / "swaps_v0.json"
 SOURCE_POOL_PATH = ROOT / "artifacts" / "source_pool_summary.json"
 INTERNAL_MASTER_PATH = ROOT / "data" / "internal_master.jsonl"
 REJECTED_LOG_PATH   = ROOT / "data" / "rejected_log.jsonl"
@@ -219,12 +222,6 @@ def load_constraints() -> dict:
 def load_aliases() -> dict:
     with open(ALIASES_PATH) as f:
         return json.load(f)
-
-
-def load_kb() -> list[dict]:
-    with open(KB_PATH) as f:
-        data = json.load(f)
-    return data["rules"]
 
 
 def _build_compiled_patterns(constraints: dict) -> dict[str, dict]:
@@ -963,7 +960,7 @@ def run_ingest(args):
     with open(SOURCE_POOL_PATH, "w") as f:
         json.dump(summary, f, indent=2, ensure_ascii=False)
 
-    console.print(f"\n[bold green]Block 1 COMPLETE[/bold green]")
+    console.print("\n[bold green]Block 1 COMPLETE[/bold green]")
     console.print(f"  Source pool:  [cyan]{len(source_pool):,}[/cyan] recipes")
     console.print(f"  Artifact:     [cyan]{SOURCE_POOL_PATH}[/cyan]")
 
@@ -1083,7 +1080,6 @@ async def _run_generate_async(
     client,
     constraints: dict,
     aliases_data: dict,
-    kb_rules: list,
     console,
     already_kept_count: int = 0,
 ) -> dict:
@@ -1176,7 +1172,6 @@ async def _run_generate_async(
                 f"[dim]→ START  {recipe_id}  restriction={restriction}"
                 f"  tier={richness_tier}  max_tokens={max_tokens}"
                 f"  template={template_id}  violations={len(violations)}"
-                f"  predicted_kb_rate={predicted_kb_rate:.2f}[/dim]"
             )
 
             # Single candidate — drop recipe on failure
@@ -1256,7 +1251,6 @@ async def _run_generate_async(
                     detected_violations=violations,
                     target_restriction=restriction,
                     constraints=constraints,
-                    kb_rules=kb_rules,
                     aliases_data=aliases_data,
                 )
                 parsed = scores_raw.pop("_parsed")
@@ -1392,7 +1386,6 @@ def run_generate(args):
 
     constraints = load_constraints()
     aliases_data = load_aliases()
-    kb_rules = load_kb()
 
     pool_path = Path(args.source_pool)
     if not pool_path.exists():
@@ -1416,24 +1409,10 @@ def run_generate(args):
 
     todo = [r for r in source_pool if r["source_recipe_id"] not in processed_ids]
 
-    # Rank todo so recipes with fewer contaminated step lines are processed first.
-    # pre_score = -step_ban_penalty; 0.04 per contaminated step line (capped at 6).
-    # Sorting descending means easy-to-pass recipes run first, reaching target_pairs faster.
-    def _pre_score(entry: dict) -> float:
-        restriction = entry["target_restriction"]
-        steps = entry["source_recipe"].get("steps", [])
-        ban_lines = predict_step_ban_exposure(steps, restriction, constraints)
-        return -min(ban_lines, 6) * 0.04
-
-    todo.sort(key=_pre_score, reverse=True)
     console.print(
         f"  Remaining: {len(todo):,} | Target: {args.target_pairs:,} kept pairs "
         f"| Concurrency: {args.concurrency}"
     )
-    if todo:
-        top_score = _pre_score(todo[0])
-        bot_score = _pre_score(todo[-1])
-        console.print(f"  [dim]Pre-flight ranking: top score={top_score:.3f}  bottom={bot_score:.3f}[/dim]")
 
     state = asyncio.run(
         _run_generate_async(
@@ -1442,7 +1421,6 @@ def run_generate(args):
             client=client,
             constraints=constraints,
             aliases_data=aliases_data,
-            kb_rules=kb_rules,
             console=console,
             already_kept_count=already_kept_count,
         )
@@ -1491,8 +1469,8 @@ def run_generate(args):
         )
     else:
         console.print("\n[bold]Next steps:[/bold]")
-        console.print(f"  1. [cyan]uv run python data/audit_dataset.py gate[/cyan]")
-        console.print(f"  2. [cyan]uv run python data/audit_dataset.py export[/cyan]")
+        console.print("  1. [cyan]uv run python data/audit_dataset.py gate[/cyan]")
+        console.print("  2. [cyan]uv run python data/audit_dataset.py export[/cyan]")
 
 
 # ---------------------------------------------------------------------------

@@ -542,7 +542,6 @@ def score_candidate(
     detected_violations: list[dict],
     target_restriction: str,
     constraints: dict,
-    kb_rules: list[dict],
     aliases_data: dict,
 ) -> dict:
     """
