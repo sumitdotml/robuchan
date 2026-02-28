@@ -357,16 +357,19 @@ def evaluate_quality_gate(
 def enforce_quality_gate(
     quality_gate_path: Path,
     target_kept_rows: int,
+    *,
+    verbose: bool = True,
 ) -> tuple[bool, dict[str, Any]]:
     passed, report = evaluate_quality_gate(quality_gate_path, target_kept_rows)
-    if passed:
-        print(f"quality gate passed: {quality_gate_path}")
-        for message in report.get("checks", []):
-            print(f"  - {message}")
-    else:
-        print(f"quality gate failed: {quality_gate_path}", file=sys.stderr)
-        for message in report.get("errors", []):
-            print(f"  - {message}", file=sys.stderr)
+    if verbose:
+        if passed:
+            print(f"quality gate passed: {quality_gate_path}")
+            for message in report.get("checks", []):
+                print(f"  - {message}")
+        else:
+            print(f"quality gate failed: {quality_gate_path}", file=sys.stderr)
+            for message in report.get("errors", []):
+                print(f"  - {message}", file=sys.stderr)
     return passed, report
 
 
@@ -714,7 +717,11 @@ def cmd_cancel_job(args: argparse.Namespace) -> int:
 
 
 def cmd_check_quality_gate(args: argparse.Namespace) -> int:
-    passed, report = enforce_quality_gate(args.quality_gate_path, args.target_kept_rows)
+    passed, report = enforce_quality_gate(
+        args.quality_gate_path,
+        args.target_kept_rows,
+        verbose=not args.json,
+    )
     if args.json:
         print(json.dumps(report, indent=2, ensure_ascii=True))
     update_manifest(

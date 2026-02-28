@@ -250,8 +250,10 @@ def compile_constraint_patterns(constraints_payload: dict[str, Any]) -> dict[str
 
 
 def check_required_sections(output_text: str) -> tuple[bool, list[str]]:
+    parsed_sections = parse_output_sections(output_text)
+    present_headers = {name for name, _, _, _ in parsed_sections}
     lower = output_text.lower()
-    missing = [header for header in SECTION_HEADERS if header not in lower]
+    missing = [header for header in SECTION_HEADERS if header not in present_headers]
     if "..." in output_text:
         missing.append("placeholder_ellipsis")
     if "same as original" in lower:
