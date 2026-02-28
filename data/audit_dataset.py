@@ -449,6 +449,49 @@ def score_nontriviality(
     return round(0.8 * violation_rate + 0.2 * step_changed, 4)
 
 
+def predict_step_ban_exposure(
+    steps: list[str],
+    restriction: str,
+    constraints: dict,
+) -> int:
+    """
+    Count source step lines that mention at least one banned term for the restriction.
+
+    High counts predict constraint_fail: the model must rewrite many step lines
+    and is likely to leave at least one banned-term reference intact.  The check
+    uses the same word-boundary matching as check_constraint_pass.
+
+    Returns 0 when steps is empty or no banned terms are defined.
+    """
+    banned = constraints.get(restriction, {}).get("banned", [])
+    if not steps or not banned:
+        return 0
+
+    sorted_terms = sorted(banned, key=len, reverse=True)
+    combined = re.compile(
+        r"\b(?:" + "|".join(re.escape(t.lower()) for t in sorted_terms) + r")\b"
+    )
+    known_fps = set(constraints.get("_meta", {}).get("known_false_positives", []))
+
+    contaminated = 0
+    for step in steps:
+        step_lower = step.lower()
+        if not combined.search(step_lower):
+            continue
+        # Exclude lines where only false-positive phrases match
+        is_real = False
+        for term in banned:
+            if _word_boundary_match(step_lower, term):
+                fp = any(term in fp_.lower() and fp_.lower() in step_lower for fp_ in known_fps)
+                if not fp:
+                    is_real = True
+                    break
+        if is_real:
+            contaminated += 1
+
+    return contaminated
+
+
 def compute_predicted_kb_coverage(
     violations: list[dict],
     restriction: str,

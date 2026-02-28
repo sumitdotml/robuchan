@@ -58,7 +58,7 @@ from rich.table import Table
 load_dotenv()
 
 sys.path.insert(0, str(Path(__file__).parent))
-from audit_dataset import score_candidate, check_completeness_validation, compute_predicted_kb_coverage
+from audit_dataset import score_candidate, check_completeness_validation, compute_predicted_kb_coverage, predict_step_ban_exposure
 
 # ---------------------------------------------------------------------------
 # Paths and constants
@@ -80,7 +80,10 @@ DEFAULT_MISTRAL_GEN_MODEL = "mistral-large-latest"
 # Minimum fraction of violation ingredients that must match a KB rule.
 # At this threshold, max plausibility = 0.7*0.5 + 0.3*1.0 = 0.65 (the keep gate).
 # Recipes below this cannot pass plausibility regardless of model output.
-DEFAULT_MIN_KB_COVERAGE = 0.5
+DEFAULT_MIN_KB_COVERAGE = 0.7
+# Skip recipes where this many source step lines contain banned terms.
+# Each contaminated step line is a place the model must rewrite; missing even one causes constraint_fail.
+DEFAULT_MAX_STEP_BAN_LINES = 3
 API_TIMEOUT_SECS = 240  # Max seconds per Mistral call before treating as a hung connection
 KAGGLE_DATASET = "irkaal/foodcom-recipes-and-reviews"
 
@@ -1153,9 +1156,24 @@ async def _run_generate_async(
                     f"[dim]  {recipe_id}  SKIPPED (predicted_kb_rate={predicted_kb_rate:.2f}"
                     f" < {args.min_kb_coverage})[/dim]"
                 )
+                rejected_file.write(json.dumps({"source_recipe_id": recipe_id, "reject_reason": "low_predicted_plausibility"}, ensure_ascii=False) + "\n")
                 return
 
             recipe = recipe_entry["source_recipe"]
+
+            # Pre-filter: skip recipes whose source steps are heavily contaminated with
+            # banned terms. Each contaminated step line must be rewritten; missing one
+            # causes constraint_fail. This check is free (no API call needed).
+            step_ban_lines = predict_step_ban_exposure(recipe["steps"], restriction, constraints)
+            if step_ban_lines > args.max_step_ban_lines:
+                state["reject_counts"]["high_step_contamination"] += 1
+                progress.console.print(
+                    f"[dim]  {recipe_id}  SKIPPED (step_ban_lines={step_ban_lines}"
+                    f" > {args.max_step_ban_lines})[/dim]"
+                )
+                rejected_file.write(json.dumps({"source_recipe_id": recipe_id, "reject_reason": "high_step_contamination"}, ensure_ascii=False) + "\n")
+                return
+
             cuisine = recipe_entry.get("cuisine", "International")
             flavor_notes = recipe_entry.get("flavor_notes", [])
             template_id = recipe_entry["template_id"]
@@ -1224,6 +1242,7 @@ async def _run_generate_async(
                             f"err:{state['reject_counts']['api_error']}"
                         ),
                     )
+                    rejected_file.write(json.dumps({"source_recipe_id": recipe_id, "reject_reason": "api_error"}, ensure_ascii=False) + "\n")
                     return
                 elapsed = time.monotonic() - t0
                 if assistant_content is None:
@@ -1231,6 +1250,7 @@ async def _run_generate_async(
                     progress.console.print(
                         f"[red]  {recipe_id}  API returned None content after {elapsed:.1f}s[/red]"
                     )
+                    rejected_file.write(json.dumps({"source_recipe_id": recipe_id, "reject_reason": "api_error"}, ensure_ascii=False) + "\n")
                     return
                 progress.console.print(
                     f"[green]  {recipe_id}"
@@ -1266,6 +1286,7 @@ async def _run_generate_async(
                     f"[red]  {recipe_id}"
                     f"  SCORING ERROR — {type(score_err).__name__}: {score_err}[/red]"
                 )
+                rejected_file.write(json.dumps({"source_recipe_id": recipe_id, "reject_reason": "scoring_error"}, ensure_ascii=False) + "\n")
                 return
 
             progress.console.print(
@@ -1413,10 +1434,30 @@ def run_generate(args):
         )
 
     todo = [r for r in source_pool if r["source_recipe_id"] not in processed_ids]
+
+    # Rank todo so high-confidence recipes are processed first.
+    # pre_score = predicted_kb_rate - step_ban_penalty
+    #   predicted_kb_rate: fraction of violations that match KB rules → drives plausibility
+    #   step_ban_penalty:  0.04 per contaminated step line (capped at 6) → drives constraint_pass risk
+    # Sorting descending means the async batches start with "easy wins", hitting
+    # the target_pairs faster and leaving low-confidence entries for the tail (or skip).
+    def _pre_score(entry: dict) -> float:
+        violations = entry.get("detected_violations") or []
+        restriction = entry["target_restriction"]
+        steps = entry["source_recipe"].get("steps", [])
+        kb_rate = compute_predicted_kb_coverage(violations, restriction, kb_rules)
+        ban_lines = predict_step_ban_exposure(steps, restriction, constraints)
+        return kb_rate - min(ban_lines, 6) * 0.04
+
+    todo.sort(key=_pre_score, reverse=True)
     console.print(
         f"  Remaining: {len(todo):,} | Target: {args.target_pairs:,} kept pairs "
         f"| Concurrency: {args.concurrency}"
     )
+    if todo:
+        top_score = _pre_score(todo[0])
+        bot_score = _pre_score(todo[-1])
+        console.print(f"  [dim]Pre-flight ranking: top score={top_score:.3f}  bottom={bot_score:.3f}[/dim]")
 
     state = asyncio.run(
         _run_generate_async(
@@ -1502,6 +1543,9 @@ def main():
                        help=f"Max parallel API calls (default: {DEFAULT_CONCURRENCY})")
     gen_p.add_argument("--num-retries", type=int, default=DEFAULT_RETRIES,
                        help="Max retries per API call on transient errors (default: {DEFAULT_RETRIES})")
+    gen_p.add_argument("--max-step-ban-lines", type=int, default=DEFAULT_MAX_STEP_BAN_LINES,
+                       help=f"Skip recipes where > N source step lines mention banned terms "
+                            f"(default: {DEFAULT_MAX_STEP_BAN_LINES}; predicts constraint_fail)")
     gen_p.add_argument("--min-kb-coverage", type=float, default=DEFAULT_MIN_KB_COVERAGE,
                        help=f"Skip recipes where predicted KB match rate < threshold "
                             f"(default: {DEFAULT_MIN_KB_COVERAGE}; below this, "
