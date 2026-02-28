@@ -87,6 +87,13 @@ def fetch_status(job_id: str | None, manifest_path: Path) -> dict[str, Any]:
     return payload
 
 
+def resolve_manifest_path(path: Path) -> Path:
+    expanded = path.expanduser()
+    if expanded.is_absolute():
+        return expanded.resolve()
+    return (Path.cwd() / expanded).resolve()
+
+
 def append_snapshot(path: Path, snapshot: dict[str, Any]) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     with path.open("a", encoding="utf-8") as handle:
@@ -96,6 +103,7 @@ def append_snapshot(path: Path, snapshot: dict[str, Any]) -> None:
 
 def main() -> int:
     args = parse_args()
+    manifest_path = resolve_manifest_path(args.manifest_path)
 
     if args.reset_output and args.output_path.exists():
         args.output_path.unlink()
@@ -110,7 +118,7 @@ def main() -> int:
         poll_count += 1
         captured_at = utc_now_iso()
         try:
-            payload = fetch_status(job_id=args.job_id, manifest_path=args.manifest_path)
+            payload = fetch_status(job_id=args.job_id, manifest_path=manifest_path)
         except RuntimeError as exc:
             print(f"error: {exc}", file=sys.stderr)
             return 1
