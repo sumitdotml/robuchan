@@ -429,3 +429,31 @@ Use this exact shape for new entries.
 - occurrence_count: 1
 - evidence:
   - file:eval/eval_engine.py:491
+
+### MISTAKE-20260228-017
+- id: MISTAKE-20260228-017
+- status: active
+- severity: medium
+- scope_tags: [code]
+- pattern: json mode command reused verbose helper prints, producing mixed human and json stdout and breaking machine parsing
+- prevention_rule: for `--json` paths, suppress human logging and emit exactly one json payload on stdout
+- validation_check: run `train/finetune.py check-quality-gate --json` and verify stdout parses as JSON in both pass and fail cases
+- first_seen: 2026-02-28
+- last_seen: 2026-02-28
+- occurrence_count: 1
+- evidence:
+  - file:train/finetune.py:720
+
+### MISTAKE-20260228-018
+- id: MISTAKE-20260228-018
+- status: active
+- severity: medium
+- scope_tags: [code, eval]
+- pattern: required section validation used substring checks, allowing malformed outputs to pass when header phrases appeared in body text
+- prevention_rule: detect required sections using parsed header structure instead of raw substring presence
+- validation_check: provide output mentioning header terms in prose without actual section headers and verify format gate fails
+- first_seen: 2026-02-28
+- last_seen: 2026-02-28
+- occurrence_count: 1
+- evidence:
+  - file:eval/eval_engine.py:255
