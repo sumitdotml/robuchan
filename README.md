@@ -149,7 +149,7 @@ make render
 
 If the video does not render below, please see [demo-video/out/video.mp4](demo-video/out/video.mp4).
 
-https://github.com/user-attachments/assets/69981070-0fa6-4ec3-8a68-fe737fbbc8db
+https://github.com/user-attachments/assets/8ddb7e49-dd24-4684-a5ae-adaaff98c925
 
 ## Agent skills usage
 
@@ -160,7 +160,7 @@ Under the Hugging Face Challenge, the following agent skills were used for the d
 
 - **[coding-principles](.agents/skills/coding-principles/SKILL.md)**: Applied when writing and iterating on `data/prepare.py` and `data/audit_dataset.py`. These scripts populated the initial dataset from a Kaggle dataset, generated input data for fine-tuning Mistral models, and validated the data synthesis quality (see [data/gate.log](data/gate.log))
 
-- **[remotion-best-practices](.clause/skills/remotion-best-practices)**: Use for demo video generation. Available at [demo-video/out/video.mp4](demo-video/out/video.mp4)
+- **[remotion-best-practices](.clause/skills/remotion-best-practices)**: Use for demo video generation. Video at [demo-video/out/video.mp4](demo-video/out/video.mp4), log file at [logs/skill-video-generation.md](logs/skill-video-generation.md).
 
 - **[design-taste-frontend](.agents/skills/design-taste-frontend/)**: Used for fonts, and design choices in the demo.
 
