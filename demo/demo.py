@@ -24,6 +24,12 @@ Examples:
     --prompt "Adapt this ramen to pescatarian." \
     --system-prompt-file prompts/demo_system.txt
 
+  # HF local adapter inference (no Mistral API needed for finetuned)
+  uv run python demo/demo.py \
+    --prompt "Make this pasta dish vegan." \
+    --inference-backend hf_local \
+    --finetuned-model sumitdotml/robuchan
+
   # explicit model IDs, disable cache
   uv run python demo/demo.py \
     --prompt "Make this pasta dish vegan." \
@@ -42,9 +48,11 @@ from __future__ import annotations
 
 import argparse
 import hashlib
+import importlib
 import json
 import os
 import sys
+from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -54,11 +62,99 @@ from mistralai.models import chatcompletionrequest
 from mistralai.models.sdkerror import SDKError
 
 DEFAULT_BASE_MODEL = "mistral-small-latest"
+DEFAULT_HF_BASE_MODEL = "mistralai/Ministral-8B-Instruct-2410"
+DEFAULT_FINETUNED_MODEL = "sumitdotml/robuchan"
 DEFAULT_MANIFEST_PATH = Path("artifacts/ft_run_manifest.json")
 DEFAULT_OUTPUT_PATH = Path("artifacts/demo_output.json")
 DEFAULT_CACHE_PATH = Path("artifacts/demo_cache.json")
 DEFAULT_MAX_TOKENS = 1000
 ChatMessages = list[chatcompletionrequest.MessagesTypedDict]
+
+
+@dataclass
+class HFLocalRuntime:
+    tokenizer: Any
+    model: Any
+
+
+def load_hf_model(model_id: str, is_adapter: bool = False) -> Any:
+    """Load an HF model (base or PEFT adapter)."""
+    torch = importlib.import_module("torch")
+    transformers = importlib.import_module("transformers")
+
+    token = os.environ.get("HF_TOKEN", "").strip() or None
+
+    if torch.cuda.is_available():
+        dtype = torch.bfloat16 if torch.cuda.is_bf16_supported() else torch.float16
+        device_map: str | None = "auto"
+    elif hasattr(torch.backends, "mps") and torch.backends.mps.is_available():
+        dtype = torch.float32
+        device_map = None
+    else:
+        dtype = torch.float32
+        device_map = None
+
+    if is_adapter:
+        peft = importlib.import_module("peft")
+        model = peft.AutoPeftModelForCausalLM.from_pretrained(
+            model_id, torch_dtype=dtype, device_map=device_map, token=token,
+        )
+    else:
+        model = transformers.AutoModelForCausalLM.from_pretrained(
+            model_id, torch_dtype=dtype, device_map=device_map, token=token,
+        )
+    model.eval()
+    return model
+
+
+def load_hf_tokenizer(model_id: str) -> Any:
+    transformers = importlib.import_module("transformers")
+    token = os.environ.get("HF_TOKEN", "").strip() or None
+    tokenizer = transformers.AutoTokenizer.from_pretrained(model_id, token=token)
+    if tokenizer.pad_token is None and tokenizer.eos_token is not None:
+        tokenizer.pad_token = tokenizer.eos_token
+    return tokenizer
+
+
+def generate_hf(
+    model: Any,
+    tokenizer: Any,
+    prompt: str,
+    system_prompt: str | None,
+    max_tokens: int,
+    temperature: float,
+) -> str:
+    """Generate text using a local HF model."""
+    torch = importlib.import_module("torch")
+
+    messages: list[dict[str, str]] = []
+    if system_prompt:
+        messages.append({"role": "system", "content": system_prompt})
+    messages.append({"role": "user", "content": prompt})
+
+    text = tokenizer.apply_chat_template(messages, tokenize=False, add_generation_prompt=True)
+    inputs = tokenizer(text, return_tensors="pt")
+
+    device = getattr(model, "device", None)
+    if device is not None:
+        inputs = {k: v.to(device) for k, v in inputs.items()}
+
+    gen_kwargs: dict[str, Any] = {
+        "max_new_tokens": max_tokens,
+        "do_sample": temperature > 0.0,
+        "pad_token_id": tokenizer.pad_token_id,
+    }
+    if tokenizer.eos_token_id is not None:
+        gen_kwargs["eos_token_id"] = tokenizer.eos_token_id
+    if temperature > 0.0:
+        gen_kwargs["temperature"] = temperature
+
+    with torch.no_grad():
+        output_ids = model.generate(**inputs, **gen_kwargs)
+
+    prompt_len = inputs["input_ids"].shape[1]
+    completion_ids = output_ids[0][prompt_len:]
+    return tokenizer.decode(completion_ids, skip_special_tokens=True).strip()
 
 
 def utc_now_iso() -> str:
@@ -199,12 +295,15 @@ def load_cache(path: Path) -> dict[str, Any]:
 def infer_once(
     *,
     client: Mistral | None,
+    hf_model: Any | None,
+    hf_tokenizer: Any | None,
     model: str,
     prompt: str,
     system_prompt: str | None,
     max_tokens: int,
     temperature: float,
     dry_run: bool,
+    backend: str = "mistral_api",
 ) -> tuple[str, dict[str, Any]]:
     if dry_run:
         mock = (
@@ -220,8 +319,14 @@ def infer_once(
             mock = f"System prompt:\n{system_prompt}\n\n{mock}"
         return mock, {"dry_run": True}
 
+    if backend == "hf_local":
+        if hf_model is None or hf_tokenizer is None:
+            raise ValueError("hf_model and hf_tokenizer are required for hf_local backend")
+        output = generate_hf(hf_model, hf_tokenizer, prompt, system_prompt, max_tokens, temperature)
+        return output, {"backend": "hf_local", "model": model}
+
     if client is None:
-        raise ValueError("client is required when --dry-run is not set")
+        raise ValueError("client is required for mistral_api backend")
 
     messages: ChatMessages = []
     if system_prompt:
@@ -277,6 +382,19 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--cache-path", type=Path, default=DEFAULT_CACHE_PATH)
     parser.add_argument("--no-cache", action="store_true")
     parser.add_argument("--output-path", type=Path, default=DEFAULT_OUTPUT_PATH)
+    parser.add_argument(
+        "--inference-backend",
+        type=str,
+        choices=("mistral_api", "hf_local"),
+        default="mistral_api",
+        help="Inference backend. hf_local loads HF adapter locally (no Mistral API for inference).",
+    )
+    parser.add_argument(
+        "--hf-base-model",
+        type=str,
+        default=DEFAULT_HF_BASE_MODEL,
+        help="Base model for HF local inference.",
+    )
     parser.add_argument("--json", action="store_true")
     parser.add_argument("--dry-run", action="store_true")
     return parser.parse_args()
@@ -285,7 +403,16 @@ def parse_args() -> argparse.Namespace:
 def run(args: argparse.Namespace) -> int:
     prompt = build_demo_prompt(args.prompt, args.restriction)
     system_prompt = resolve_system_prompt(args)
-    fine_tuned_model = resolve_finetuned_model(args)
+    is_hf = args.inference_backend == "hf_local"
+
+    if is_hf:
+        fine_tuned_model = (
+            args.finetuned_model.strip()
+            if args.finetuned_model and args.finetuned_model.strip()
+            else DEFAULT_FINETUNED_MODEL
+        )
+    else:
+        fine_tuned_model = resolve_finetuned_model(args)
 
     cache_enabled = not args.no_cache
     cache = load_cache(args.cache_path) if cache_enabled else {"entries": {}}
@@ -294,14 +421,28 @@ def run(args: argparse.Namespace) -> int:
         entries = {}
         cache["entries"] = entries
 
-    api_key = load_api_key(args.dry_run)
-    client = Mistral(api_key=api_key) if api_key else None
+    # Load models based on backend
+    client: Mistral | None = None
+    hf_base_model_obj: Any = None
+    hf_ft_model_obj: Any = None
+    hf_tokenizer: Any = None
+
+    if is_hf and not args.dry_run:
+        print(f"loading base model: {args.hf_base_model}")
+        hf_base_model_obj = load_hf_model(args.hf_base_model, is_adapter=False)
+        print(f"loading adapter: {fine_tuned_model}")
+        hf_ft_model_obj = load_hf_model(fine_tuned_model, is_adapter=True)
+        hf_tokenizer = load_hf_tokenizer(args.hf_base_model)
+    elif not args.dry_run:
+        api_key = load_api_key(args.dry_run)
+        client = Mistral(api_key=api_key) if api_key else None
 
     outputs: dict[str, dict[str, Any]] = {}
-    for label, model in (
-        ("base", args.base_model.strip()),
-        ("finetuned", fine_tuned_model),
-    ):
+    model_pairs: list[tuple[str, str, Any]] = [
+        ("base", args.hf_base_model if is_hf else args.base_model.strip(), hf_base_model_obj),
+        ("finetuned", fine_tuned_model, hf_ft_model_obj),
+    ]
+    for label, model, hf_model in model_pairs:
         cache_key = build_cache_key(
             model=model,
             prompt=prompt,
@@ -318,12 +459,15 @@ def run(args: argparse.Namespace) -> int:
         else:
             output_text, raw_payload = infer_once(
                 client=client,
+                hf_model=hf_model,
+                hf_tokenizer=hf_tokenizer,
                 model=model,
                 prompt=prompt,
                 system_prompt=system_prompt,
                 max_tokens=args.max_tokens,
                 temperature=args.temperature,
                 dry_run=args.dry_run,
+                backend=args.inference_backend,
             )
             from_cache = False
             if cache_enabled:
