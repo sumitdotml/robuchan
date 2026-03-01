@@ -8,10 +8,14 @@ Fine-tune `mistral-small-latest` on synthetic dietary recipe adaptations generat
 
 No connection to the famous chef [Joel Robuchon](https://en.wikipedia.org/wiki/Jo%C3%ABl_Robuchon).
 
+* Demo video: https://www.youtube.com/watch?v=LIlsP0OqTf4
+* Hugging face: Todo
+* W&B: Todo
+
 ## Architecture
 
 ```mermaid
-flowchart LR
+flowchart TD
     subgraph DataSources["Data Sources"]
         FoodCom["530K recipes"]
         KB["Ingredient swap rules"]
