@@ -2,12 +2,6 @@
 .env
 .env.local
 
-# Generated / large artifacts
-artifacts/
-data/*.jsonl
-eval/results_*.json
-train/job_result.json
-
 # Python
 __pycache__/
 *.pyc

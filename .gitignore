@@ -11,6 +11,9 @@ node_modules/
 
 # Generated data
 data/*.jsonl
+# files required for finetuning
+!data/train_filtered.jsonl
+!data/valid_filtered.jsonl
 eval/results_*.json
 train/job_result.json
 

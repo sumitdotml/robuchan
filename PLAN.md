@@ -438,11 +438,13 @@ Reliability rule:
 - Execution: `uv run python data/prepare.py generate`
   - `sh watch-progress.sh`: prints the current number of records in the generated records every minute.
   - `uv run python data/audit_dataset.py gate` runs quality metrics. Output in `data/gate.log`.
+  - `uv run python data/audit_dataset.py export` to generate filtered jsonls required for the next block.
   - Extra: `uv run python data/plot_response_times.py` generates `data/response_times.png`, a graph of Mistral API's latency as a function of time.
 
 **Block 3 (14:00-15:00): Upload + Launch Fine-Tuning [60 min]**
 
 - Upload `train_filtered.jsonl` / `valid_filtered.jsonl`.
+- Run `uv run python scripts/push_to_hf.py` to upload to Hugging face.
 - Launch fine-tune in Workspace A.
 - Confirm RUNNING status + W&B metrics.
 
