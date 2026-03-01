@@ -3,7 +3,7 @@
 This folder expands three local fine-tuning tracks for your M5 MacBook Pro (32 GB unified memory):
 
 1. Cybersecurity Analyst
-2. Recipe Remix
+2. Robuchan
 3. Science Translator
 
 ---
@@ -24,7 +24,7 @@ They also preserve `Track alignment (20%)` through local fine-tuning of a Mistra
 | Option | Creativity | Usefulness | Data prep effort | License risk | Eval clarity | Demo strength |
 |---|---:|---:|---:|---:|---:|---:|
 | Cybersecurity Analyst | 4/5 | 5/5 | Low | Low | High | High |
-| Recipe Remix | 5/5 | 4/5 | Medium | Medium | High | Very High |
+| Robuchan | 5/5 | 4/5 | Medium | Medium | High | Very High |
 | Science Translator | 4/5 | 5/5 | Low | Low | High | High |
 
 ---
@@ -38,7 +38,7 @@ If you want maximum pragmatic value and least compliance risk:
 
 If you want the most memorable live demo:
 
-1. Primary: Recipe Remix
+1. Primary: Robuchan
 2. Backup: Science Translator
 
 ---

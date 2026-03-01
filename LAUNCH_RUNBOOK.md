@@ -27,7 +27,7 @@ wc -l data/train_filtered.jsonl data/valid_filtered.jsonl
 ```bash
 export MISTRAL_API_KEY=...
 export WANDB_API_KEY=...          # recommended for tracking
-export WANDB_PROJECT=arena-dei-poveri
+export WANDB_PROJECT=robuchan
 ```
 
 ## 2. Optional: Refresh Local Data From Hugging Face
@@ -35,7 +35,7 @@ export WANDB_PROJECT=arena-dei-poveri
 Use this only if local `data/train_filtered.jsonl` and `data/valid_filtered.jsonl` are outdated or missing.
 
 ```bash
-huggingface-cli download sumitdotml/arena-dei-poveri \
+hf download sumitdotml/robuchan-data \
   data/train_filtered.jsonl data/valid_filtered.jsonl \
   --repo-type dataset \
   --local-dir /Users/sumit/playground/hackathons/mistral-tokyo-2026 \
@@ -71,7 +71,7 @@ uv run python train/finetune.py create-job \
   --model ministral-3b-latest \
   --training-steps 100 \
   --learning-rate 1e-4 \
-  --suffix arena-dei-poveri-v1 \
+  --suffix robuchan-v1 \
   --skip-quality-gate \
   --manifest-path artifacts/ft_run_manifest.json
 ```
@@ -83,7 +83,7 @@ uv run python train/finetune.py create-job \
   --model ministral-3b-latest \
   --training-steps 100 \
   --learning-rate 1e-4 \
-  --suffix arena-dei-poveri-v1 \
+  --suffix robuchan-v1 \
   --auto-start \
   --skip-quality-gate \
   --manifest-path artifacts/ft_run_manifest.json

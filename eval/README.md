@@ -31,7 +31,7 @@ Required env var:
 
 W&B env vars:
 - `WANDB_API_KEY`
-- `WANDB_PROJECT` (optional; defaults to `recipe-remix`)
+- `WANDB_PROJECT` (optional; defaults to `robuchan`)
 - `WANDB_ENTITY` (optional unless your workspace setup needs it)
 
 ## 3. Step-by-Step Flow
@@ -180,7 +180,7 @@ uv run python eval/evaluate.py \
   --input data/final150.jsonl \
   --split-name final150 \
   --model ft:your-model-id \
-  --wandb-project recipe-remix
+  --wandb-project robuchan
 ```
 
 Optional:
