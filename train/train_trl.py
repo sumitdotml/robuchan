@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Fine-tune Ministral 3B with TRL SFTTrainer + LoRA.
+"""Fine-tune Ministral 8B with TRL SFTTrainer + LoRA (QLoRA).
 
 Designed to run on HF Jobs (T4 GPU) or any CUDA machine.
 

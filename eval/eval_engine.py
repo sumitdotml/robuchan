@@ -33,7 +33,7 @@ DEFAULT_EVAL_MAX_TOKENS = 1400
 DEFAULT_JUDGE_MAX_TOKENS = 700
 DEFAULT_WANDB_PROJECT = "robuchan"
 DEFAULT_INFERENCE_BACKEND = "mistral_api"
-DEFAULT_HF_BASE_MODEL = "mistralai/Ministral-3-3B-Instruct-2512"
+DEFAULT_HF_BASE_MODEL = "mistralai/Ministral-8B-Instruct-2410"
 
 SECTION_HEADERS = (
     "substitution plan",

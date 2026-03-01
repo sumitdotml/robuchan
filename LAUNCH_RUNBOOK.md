@@ -61,12 +61,12 @@ uv run python train/launch_hf_job.py
 ```
 
 Default configuration (override via CLI args):
-- **Model**: `mistralai/Ministral-3-3B-Instruct-2512` (open-weight, Apache 2.0)
-- **Method**: LoRA (r=16, alpha=32, targets: q/k/v/o projections)
+- **Model**: `mistralai/Ministral-8B-Instruct-2410` (open-weight, Apache 2.0) with QLoRA (4-bit)
+- **Method**: QLoRA (r=16, alpha=32, targets: q/k/v/o projections, 4-bit quantization)
 - **Epochs**: 3
 - **Learning rate**: 2e-4 (standard for TRL + LoRA; higher than Mistral API's 1e-4 because only adapter weights update)
 - **Effective batch size**: 16 (batch=1 × gradient_accumulation=16)
-- **GPU**: T4-medium (16GB VRAM, 8 vCPU, 30GB RAM) at ~$0.60/hr
+- **GPU**: A10G-large (24GB VRAM, 12 vCPU, 46GB RAM) at ~$1.50/hr
 - **W&B**: native integration, full training loss curves (no 40-char key limitation)
 - **Output**: adapter pushed to `sumitdotml/robuchan` on HF Hub
 
@@ -74,16 +74,11 @@ Custom run example:
 
 ```bash
 uv run python train/launch_hf_job.py \
+  --use-4bit \
   --num-train-epochs 5 \
   --learning-rate 1e-4 \
-  --flavor t4-medium \
+  --flavor a10g-large \
   --timeout 2h
-```
-
-QLoRA variant (4-bit quantization, lower memory):
-
-```bash
-uv run python train/launch_hf_job.py --use-4bit
 ```
 
 ## 5. Monitor Job
@@ -136,10 +131,10 @@ uv run python eval/evaluate.py \
 
 ## Cost Estimate
 
-- T4-medium: ~$0.60/hr
-- Expected training time: 10-30 min for 1090 rows, 3 epochs
-- Per-run cost: ~$0.20-$0.30
-- Budget: $30 credits = ~100+ runs
+- A10G-large: ~$1.50/hr
+- Expected training time: 30-45 min for 1090 rows, 3 epochs
+- Per-run cost: ~$0.75-$1.10
+- Budget: $30 credits = ~25+ runs
 
 ## Notes
 
