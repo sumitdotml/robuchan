@@ -54,14 +54,14 @@ def cmd_launch(args: argparse.Namespace) -> int:
     }
 
     # Build the training command.
-    # P0 fix: the container is bare pytorch — clone the repo first so
-    # train/train_trl.py is available inside the container.
+    # The stock pytorch image is bare — install git + deps, then clone and run.
     github_repo = args.github_repo
     train_cmd = [
         "bash",
         "-c",
-        f"git clone https://github.com/{github_repo}.git repo && cd repo"
-        " && pip install transformers trl peft wandb bitsandbytes datasets hf_transfer accelerate"
+        "apt-get update -qq && apt-get install -y -qq git > /dev/null"
+        " && pip install -q transformers trl peft wandb bitsandbytes datasets hf_transfer accelerate"
+        f" && git clone https://github.com/{github_repo}.git repo && cd repo"
         " && python train/train_trl.py"
         f" --base-model {args.base_model}"
         f" --dataset {args.dataset}"

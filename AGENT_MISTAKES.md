@@ -403,6 +403,20 @@ Use this exact shape for new entries.
 - evidence:
   - file:scripts/fill_handoffs.py:247
 
+### MISTAKE-20260301-027
+- id: MISTAKE-20260301-027
+- status: active
+- severity: high
+- scope_tags: [infra, code]
+- pattern: container command assumed git was available in bare pytorch docker image, but `pytorch/pytorch:*-devel` images do not include git
+- prevention_rule: when building container commands for bare images, always install system dependencies (git, etc.) before using them
+- validation_check: verify container command starts with `apt-get update && apt-get install -y git` before any `git clone` call
+- first_seen: 2026-03-01
+- last_seen: 2026-03-01
+- occurrence_count: 1
+- evidence:
+  - file:train/launch_hf_job.py:63
+
 ### MISTAKE-20260301-026
 - id: MISTAKE-20260301-026
 - status: active
