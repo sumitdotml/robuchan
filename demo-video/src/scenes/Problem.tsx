@@ -115,16 +115,16 @@ const PersonaCard: React.FC<{ persona: Persona }> = ({ persona }) => (
 );
 
 // ---------------------------------------------------------------------------
-// Main Problem scene (18s)
-// Card 0 alone → Card 1 joins at 6s → Card 2 joins at 12s → closing at 14s
+// Main Problem scene (6s)
+// Card 0 alone → Card 1 joins at 1.5s → Card 2 joins at 3.5s → closing at 4.5s
 // ---------------------------------------------------------------------------
 export const Problem: React.FC = () => {
   const frame = useCurrentFrame();
   const { fps } = useVideoConfig();
 
   // Smooth layout-shift springs (damping:200 = no bounce)
-  const shift1 = spring({ frame: frame - 6 * fps, fps, config: { damping: 200 } });
-  const shift2 = spring({ frame: frame - 12 * fps, fps, config: { damping: 200 } });
+  const shift1 = spring({ frame: frame - 1.5 * fps, fps, config: { damping: 200 } });
+  const shift2 = spring({ frame: frame - 3.5 * fps, fps, config: { damping: 200 } });
 
   // ── Card 0 ─────────────────────────────────────────────────────────────────
   const card0Entrance = spring({
@@ -142,7 +142,7 @@ export const Problem: React.FC = () => {
 
   // ── Card 1 ─────────────────────────────────────────────────────────────────
   const card1Slide = spring({
-    frame: frame - 6 * fps,
+    frame: frame - 1.5 * fps,
     fps,
     config: { damping: 14, stiffness: 160 },
   });
@@ -151,14 +151,14 @@ export const Problem: React.FC = () => {
     extrapolateRight: "clamp",
   });
   const card1Left = card1BaseLeft - shift2 * SHIFT;
-  const card1Opacity = interpolate(frame, [6 * fps, 6 * fps + 12], [0, 1], {
+  const card1Opacity = interpolate(frame, [1.5 * fps, 1.5 * fps + 12], [0, 1], {
     extrapolateLeft: "clamp",
     extrapolateRight: "clamp",
   });
 
   // ── Card 2 ─────────────────────────────────────────────────────────────────
   const card2Slide = spring({
-    frame: frame - 12 * fps,
+    frame: frame - 3.5 * fps,
     fps,
     config: { damping: 14, stiffness: 160 },
   });
@@ -166,15 +166,15 @@ export const Problem: React.FC = () => {
     extrapolateLeft: "clamp",
     extrapolateRight: "clamp",
   });
-  const card2Opacity = interpolate(frame, [12 * fps, 12 * fps + 12], [0, 1], {
+  const card2Opacity = interpolate(frame, [3.5 * fps, 3.5 * fps + 12], [0, 1], {
     extrapolateLeft: "clamp",
     extrapolateRight: "clamp",
   });
 
-  // ── Closing line at 14s (visible for 4s until scene end at 18s) ────────────
+  // ── Closing line at 4.5s (visible for 1.5s until scene end at 6s) ──────────
   const closingOpacity = interpolate(
     frame,
-    [14 * fps, 14 * fps + Math.round(fps * 0.6)],
+    [4.5 * fps, 4.5 * fps + Math.round(fps * 0.6)],
     [0, 1],
     { extrapolateLeft: "clamp", extrapolateRight: "clamp" }
   );
@@ -221,7 +221,7 @@ export const Problem: React.FC = () => {
           <PersonaCard persona={PERSONAS[2]} />
         </div>
 
-        {/* Closing line — 4s visibility (14s–18s) */}
+        {/* Closing line — 1.5s visibility (4.5s–6s) */}
         <div
           style={{
             position: "absolute",

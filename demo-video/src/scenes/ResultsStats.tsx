@@ -2,7 +2,6 @@ import React from "react";
 import {
   AbsoluteFill,
   interpolate,
-  spring,
   useCurrentFrame,
   useVideoConfig,
 } from "remotion";
@@ -13,14 +12,13 @@ import { SceneLabel } from "../components/SceneLabel";
 const TITLE_FADE_START = 0;
 const TITLE_FADE_END = 20;
 
-const BARS_START_S = 2;
+const BARS_START_S = 1.0;
 const BARS_ANIM_FRAMES = 60;
 
-const MAX_BAR_HEIGHT_PX = 320;
-const BAR_WIDTH_PX = 80;
+const MAX_BAR_HEIGHT_PX = 384;
+const BAR_WIDTH_PX = 96;
 
-const CALLOUT_SPRING_START_S = 8;
-const WANDB_FADE_START_S = 11;
+const WANDB_FADE_START_S = BARS_START_S;
 const WANDB_FADE_DURATION_FRAMES = 20;
 
 const SPRING_CONFIG = { damping: 14, stiffness: 120, mass: 1 };
@@ -202,23 +200,7 @@ export const ResultsStats: React.FC = () => {
     { extrapolateLeft: "clamp", extrapolateRight: "clamp" }
   );
 
-  // Callout spring at 10s
-  const calloutProgress = spring({
-    frame: frame - Math.round(CALLOUT_SPRING_START_S * fps),
-    fps,
-    config: SPRING_CONFIG,
-    durationInFrames: 40,
-  });
-  const calloutScale = interpolate(calloutProgress, [0, 1], [0.8, 1], {
-    extrapolateLeft: "clamp",
-    extrapolateRight: "clamp",
-  });
-  const calloutOpacity = interpolate(calloutProgress, [0, 1], [0, 1], {
-    extrapolateLeft: "clamp",
-    extrapolateRight: "clamp",
-  });
-
-  // W&B caption fade at 12s
+  // W&B caption fade with bars
   const wandbStart = Math.round(WANDB_FADE_START_S * fps);
   const wandbOpacity = interpolate(
     frame,
@@ -306,24 +288,6 @@ export const ResultsStats: React.FC = () => {
             bars={lossBars}
             startFrame={0}
           />
-        </div>
-
-        {/* Callout badge */}
-        <div
-          style={{
-            opacity: calloutOpacity,
-            transform: `scale(${calloutScale})`,
-            backgroundColor: "rgba(63, 185, 80, 0.12)",
-            border: `1.5px solid ${COLORS.green}`,
-            borderRadius: 100,
-            padding: "14px 36px",
-            color: COLORS.green,
-            fontSize: 22,
-            fontWeight: 700,
-            textAlign: "center",
-          }}
-        >
-          87.3% accuracy
         </div>
 
         {/* W&B caption */}

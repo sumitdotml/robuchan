@@ -42,8 +42,8 @@ export const Outro: React.FC = () => {
     { extrapolateLeft: "clamp", extrapolateRight: "clamp" }
   );
 
-  // Credit fades in at 4s
-  const creditOpacity = interpolate(frame, [fps * 4, fps * 4.5], [0, 1], {
+  // Credit fades in at 3s
+  const creditOpacity = interpolate(frame, [fps * 3, fps * 3.5], [0, 1], {
     extrapolateLeft: "clamp",
     extrapolateRight: "clamp",
   });
@@ -117,7 +117,7 @@ export const Outro: React.FC = () => {
           style={{
             opacity: creditOpacity,
             color: COLORS.textSub,
-            fontSize: 16,
+            fontSize: 19,
             letterSpacing: 2,
             textTransform: "uppercase",
           }}

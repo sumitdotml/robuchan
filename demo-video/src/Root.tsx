@@ -1,9 +1,8 @@
 import React from "react";
 import { Composition } from "remotion";
-import { RobuchanVideo } from "./RobuchanVideo";
+import { RobuchanVideo, TOTAL_DURATION_S } from "./RobuchanVideo";
 
 const FPS = 30;
-const TOTAL_DURATION_S = 91;
 
 export const Root: React.FC = () => {
   return (

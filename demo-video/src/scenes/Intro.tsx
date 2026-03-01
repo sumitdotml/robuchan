@@ -113,10 +113,10 @@ export const Intro: React.FC = () => {
   const tagline2Words =
     "without worrying about allergies or dietary restrictions.".split(" ");
 
-  // Emoji row: starts at 8s (scene is 12s)
+  // Emoji row: starts at 5s (scene is 9s)
   const emojiRowOpacity = interpolate(
     frame,
-    [fps * 8, fps * 8.4],
+    [fps * 5, fps * 5.4],
     [0, 1],
     { extrapolateLeft: "clamp", extrapolateRight: "clamp" }
   );
@@ -196,7 +196,7 @@ export const Intro: React.FC = () => {
           />
         </p>
 
-        {/* Emoji row at 8s */}
+        {/* Emoji row at 5s */}
         <div
           style={{
             marginTop: 48,
@@ -205,7 +205,7 @@ export const Intro: React.FC = () => {
             alignItems: "center",
           }}
         >
-          <Sequence from={fps * 8} layout="none">
+          <Sequence from={fps * 5} layout="none">
             {EMOJIS.map((emoji, i) => (
               <EmojiItem key={emoji} emoji={emoji} delay={i * 5} />
             ))}

@@ -15,8 +15,8 @@ const HEADLINE_FADE_END = 20;
 
 const MISTRAL_SPRING_START_S = 1;
 const STAT_BOX_STARTS_S = [2.5, 3.0, 3.5];
-const BADGE_SPRING_START_S = 7;
-const SUBTITLE_FADE_START_S = 9;
+const BADGE_SPRING_START_S = 5;
+const SUBTITLE_FADE_START_S = 7;
 const SUBTITLE_FADE_DURATION_FRAMES = 20;
 
 const SPRING_CONFIG = { damping: 14, stiffness: 120, mass: 1 };

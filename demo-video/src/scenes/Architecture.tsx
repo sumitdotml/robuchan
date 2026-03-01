@@ -50,8 +50,8 @@ const STAGES: {
   },
 ];
 
-// Delay in frames per stage spec (1*fps, 3*fps, 5*fps, 7*fps, 9*fps)
-const STAGE_DELAYS_MULTIPLIERS = [1, 3, 5, 7, 9];
+// Delay in seconds per stage (original [1,3,5,7,9] * 0.85)
+const STAGE_DELAYS_MULTIPLIERS = [0.85, 2.55, 4.25, 5.95, 7.65];
 
 // ---------------------------------------------------------------------------
 // Single stage box
