@@ -13,10 +13,10 @@ const TITLE_FADE_START = 0;
 const TITLE_FADE_END = 20;
 
 const BARS_START_S = 1.0;
-const BARS_ANIM_FRAMES = 60;
+const BARS_ANIM_FRAMES = 48;
 
-const MAX_BAR_HEIGHT_PX = 384;
-const BAR_WIDTH_PX = 96;
+const MAX_BAR_HEIGHT_PX = 538;
+const BAR_WIDTH_PX = 134;
 
 const WANDB_FADE_START_S = BARS_START_S;
 const WANDB_FADE_DURATION_FRAMES = 20;
@@ -97,7 +97,7 @@ const AnimatedBar: React.FC<{
             textAlign: "center",
             opacity: labelOpacity,
             color: bar.color,
-            fontSize: 18,
+            fontSize: 36,
             fontWeight: 700,
           }}
         >
@@ -294,8 +294,8 @@ export const ResultsStats: React.FC = () => {
         <div
           style={{
             opacity: wandbOpacity,
-            color: COLORS.textSub,
-            fontSize: 16,
+            color: COLORS.text,
+            fontSize: 22,
             fontWeight: 400,
           }}
         >

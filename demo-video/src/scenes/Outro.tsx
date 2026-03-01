@@ -27,11 +27,20 @@ export const Outro: React.FC = () => {
     extrapolateRight: "clamp",
   });
 
+  // Logo Y offset: starts pushed toward screen center, springs to flex position as text appears
+  const logoYOffset = spring({
+    frame: frame - fps * 1.5,
+    fps,
+    config: { damping: 12, stiffness: 80, mass: 1 },
+    from: 130,
+    to: 0,
+  });
+
   // "What are you hungry for?" springs in at 1.5s
   const questionScale = spring({
     frame: frame - fps * 1.5,
     fps,
-    config: { damping: 12, stiffness: 140, mass: 1 },
+    config: { damping: 12, stiffness: 80, mass: 1 },
     from: 0.85,
     to: 1,
   });
@@ -64,7 +73,7 @@ export const Outro: React.FC = () => {
         <div
           style={{
             opacity: logoOpacity,
-            transform: `scale(${logoScale})`,
+            transform: `translateY(${logoYOffset}px) scale(${logoScale})`,
           }}
         >
           <Img
@@ -100,7 +109,7 @@ export const Outro: React.FC = () => {
                 <span
                   key={i}
                   style={{
-                    fontSize: 52,
+                    fontSize: 60,
                     display: "inline-block",
                     transform: `translateY(${floatY}px)`,
                   }}

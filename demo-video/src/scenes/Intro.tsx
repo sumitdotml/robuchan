@@ -2,7 +2,6 @@ import React from "react";
 import {
   AbsoluteFill,
   Img,
-  Sequence,
   interpolate,
   spring,
   staticFile,
@@ -205,11 +204,9 @@ export const Intro: React.FC = () => {
             alignItems: "center",
           }}
         >
-          <Sequence from={fps * 5} layout="none">
-            {EMOJIS.map((emoji, i) => (
-              <EmojiItem key={emoji} emoji={emoji} delay={i * 5} />
-            ))}
-          </Sequence>
+          {EMOJIS.map((emoji, i) => (
+            <EmojiItem key={emoji} emoji={emoji} delay={fps * 5 + i * 5} />
+          ))}
         </div>
       </AbsoluteFill>
     </Background>
