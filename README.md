@@ -1,10 +1,60 @@
 # Robuchan
 
+![robuchan-wide.png](./assets/robuchan-wide.png)
+
 Recipe adaptation fine-tuning for the Mistral AI Worldwide Hackathon Tokyo (Feb 28 - Mar 1, 2026).
 
 Fine-tune `mistral-small-latest` on synthetic dietary recipe adaptations generated from Food.com recipes via `mistral-large-latest`.
 
 No connection to the famous chef [Joel Robuchon](https://en.wikipedia.org/wiki/Jo%C3%ABl_Robuchon).
+
+## Architecture
+
+```mermaid
+flowchart LR
+    subgraph DataSources["Data Sources"]
+        FoodCom["530K recipes"]
+        KB["Ingredient swap rules"]
+    end
+
+    subgraph DataPipeline["Data Pipeline"]
+        Ingest["Ingest & filter recipes"]
+        Generate["Generate adapted recipes with Mistral Large"]
+        Check["Quality checks"]
+        PF{Pass?}
+        Drop(["Drop"])
+        Dataset[("Training dataset")]
+    end
+
+    subgraph Training["Model Training"]
+        Upload["Upload dataset"]
+        FineTune["Fine-tune Mistral Small"]
+        Model[/"Robuchan Model"/]
+    end
+
+    subgraph Eval["Evaluation"]
+        BaseVsFT["Baseline vs Fine-tuned"]
+        Judge["LLM-as-a-judge with Mistral Large"]
+        Metrics["W&B"]
+    end
+
+    Demo["Interactive demo"]
+
+    FoodCom --> Ingest
+    KB --> Check
+    Ingest --> Generate
+    Generate --> Check
+    Check --> PF
+    PF -->|fail| Drop
+    PF -->|pass| Dataset
+    Dataset --> Upload
+    Upload --> FineTune
+    FineTune --> Model
+    Model --> BaseVsFT
+    BaseVsFT --> Judge
+    Judge --> Metrics
+    Model --> Demo
+```
 
 ## Key Files
 
@@ -19,9 +69,9 @@ No connection to the famous chef [Joel Robuchon](https://en.wikipedia.org/wiki/J
 ## Quick Start
 
 ```bash
-uv sync
 cp .env.example .env  # add MISTRAL_API_KEY, WANDB_API_KEY, HF_TOKEN
 set -a; source .env; set +a
+make setup # installs required python and node packages
 ```
 
 ## Credential Quick Check
@@ -87,16 +137,31 @@ W&B project does not need to be created manually beforehand in most cases; if th
 - **Demo**: Marimo
 - **Deps**: `uv`
 
+## Video generation
+
+```sh
+# make changes to demo-video dir, or use remotion skills with claude.
+# actual log saved at logs/skill-video-generation.md
+make preview
+# save a mp4 video
+make render
+```
+
+<video src="demo-video/out/video.mp4" controls></video>
+
 ## Agent skills usage
 
 Under the Hugging Face Challenge, the following agent skills were used for the development of this project (& the demo video!):
 
-- TODO: remotion agent skills
 
 - **[mistake-memory-guardrails](.agents/skills/mistake-memory-guardrails/SKILL.md)**: Required before every repository edit (enforced in `AGENTS.md` + `CLAUDE.md`). Maintained [`AGENT_MISTAKES.md`](AGENT_MISTAKES.md) across sessions. Made data synthesis much faster, by identifying optimizations, patterns in the dataset to reduce API calls, and define static rules.
 
-- **[coding-principles](.claude/skills/coding-principles/SKILL.md)**: Applied when writing and iterating on `data/prepare.py` and `data/audit_dataset.py`. These scripts populated the initial dataset from a Kaggle dataset, generated input data for fine-tuning Mistral models, and validated the data synthesis quality (see [data/gate.log](data/gate.log))
+- **[coding-principles](.agents/skills/coding-principles/SKILL.md)**: Applied when writing and iterating on `data/prepare.py` and `data/audit_dataset.py`. These scripts populated the initial dataset from a Kaggle dataset, generated input data for fine-tuning Mistral models, and validated the data synthesis quality (see [data/gate.log](data/gate.log))
 
-- **[commit](.claude/skills/commit/SKILL.md)**: Used for all git checkpoints throughout development. Enforced consistent message formatting.
+- **[remotion-best-practices](.clause/skills/remotion-best-practices)**: Use for demo video generation.
 
-- **[writing-style](.claude/skills/writing-style/SKILL.md)**: Applied to planning and decision documents (`PLAN.md`, `DATASET_SCHEMA.md`, `CONSIDERING.md`, `LOG.md`).
+- **[design-taste-frontend](.agents/skills/design-taste-frontend/)**: Used for fonts, and design choices in the demo.
+
+- **[commit](.agents/skills/commit/SKILL.md)**: Used for all git checkpoints throughout development. Enforced consistent message formatting.
+
+- **[writing-style](.agents/skills/writing-style/SKILL.md)**: Applied to planning and decision documents (`PLAN.md`, `DATASET_SCHEMA.md`, `CONSIDERING.md`, `LOG.md`).
