@@ -349,7 +349,7 @@ job = client.fine_tuning.jobs.create(
     model="mistral-small-latest",
     training_files=[{"file_id": train_file.id, "weight": 1}],
     validation_files=[val_file.id],
-    hyperparameters={"training_steps": 100, "learning_rate": 1e-4},
+    hyperparameters={"training_steps": 40, "learning_rate": 1e-4},
     auto_start=False,
     integrations=[{"project": "robuchan", "api_key": os.environ["WANDB_API_KEY"]}],
     suffix="robuchan-foodcom-synth",
@@ -358,6 +358,11 @@ job = client.fine_tuning.jobs.create(
 client.fine_tuning.jobs.start(job_id=job.id)
 status = client.fine_tuning.jobs.get(job_id=job.id)
 ```
+
+Hyperparameter rationale (current run profile):
+- `learning_rate=1e-4` follows Mistral FAQ guidance for LoRA-style fine-tuning (`1e-4` or `1e-5`).
+- `training_steps=40` is sized to current train file volume (~5.18 MB), giving ~7.7 epochs using FAQ heuristic `epochs ≈ steps / train_file_MB`.
+- Recompute `training_steps` whenever training file MB changes; avoid fixed-step reuse across materially different dataset sizes.
 
 ## Evaluation: Deterministic + LLM-as-Judge
 
