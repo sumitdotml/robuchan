@@ -367,7 +367,7 @@ Hyperparameter rationale (current run profile):
 ## Evaluation: Deterministic + LLM-as-Judge
 
 - Deterministic compliance uses `eval/constraints.json`.
-- LLM-as-judge (Mistral Large) rates: compliance, flavor fidelity, dish identity preservation, explanation quality.
+- Nice to have: LLM-as-judge (Mistral Large) rates: compliance, flavor fidelity, dish identity preservation, explanation quality.
 
 ### Evaluation stages
 

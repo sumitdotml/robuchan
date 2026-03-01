@@ -1,0 +1,14 @@
+{
+  "compilerOptions": {
+    "skipLibCheck": true,
+    "lib": ["dom", "esnext"],
+    "module": "commonjs",
+    "target": "es6",
+    "strict": true,
+    "rootDir": "./src",
+    "jsx": "react",
+    "esModuleInterop": true,
+    "outDir": "./dist"
+  },
+  "include": ["src/**/*"]
+}
