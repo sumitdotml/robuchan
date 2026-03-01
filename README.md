@@ -147,7 +147,8 @@ make preview
 make render
 ```
 
-<video src="./demo-video/out/video.mp4" controls />
+<video src="./demo-video/out/video.mp4" controls width="100%"></video>
+
 
 ## Agent skills usage
 
