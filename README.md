@@ -147,8 +147,9 @@ make preview
 make render
 ```
 
-<video src="https://raw.githubusercontent.com/sumitdotml/mistral-hackathon-2026/demo/demo-video/out/video.mp4" controls width="100%"></video>
+If the video does not render below, please see [demo-video/out/video.mp4](demo-video/out/video.mp4).
 
+https://github.com/user-attachments/assets/69981070-0fa6-4ec3-8a68-fe737fbbc8db
 
 ## Agent skills usage
 
