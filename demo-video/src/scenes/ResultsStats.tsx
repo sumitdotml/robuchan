@@ -118,8 +118,8 @@ const AnimatedBar: React.FC<{
       {/* Model name below bar */}
       <span
         style={{
-          color: COLORS.textSub,
-          fontSize: 15,
+          color: COLORS.text,
+          fontSize: 20,
           fontWeight: 500,
           textAlign: "center",
         }}
@@ -214,14 +214,14 @@ export const ResultsStats: React.FC = () => {
     {
       modelName: "Baseline",
       color: COLORS.textSub,
-      targetFraction: 0.721,
-      displayLabel: "72.1%",
+      targetFraction: 0.67,
+      displayLabel: "67%",
     },
     {
       modelName: "Robuchan",
       color: COLORS.green,
-      targetFraction: 0.873,
-      displayLabel: "87.3%",
+      targetFraction: 0.82,
+      displayLabel: "82%",
     },
   ];
 
@@ -230,14 +230,14 @@ export const ResultsStats: React.FC = () => {
     {
       modelName: "Baseline",
       color: COLORS.textSub,
-      targetFraction: 0.62,
-      displayLabel: "1.82",
+      targetFraction: 0.69,
+      displayLabel: "1.37",
     },
     {
       modelName: "Robuchan",
       color: COLORS.accent,
-      targetFraction: 0.38,
-      displayLabel: "1.12",
+      targetFraction: 0.35,
+      displayLabel: "0.7",
     },
   ];
 
@@ -266,7 +266,7 @@ export const ResultsStats: React.FC = () => {
             letterSpacing: -1,
           }}
         >
-          Baseline vs. Fine-tuned
+          Baseline vs Fine-tuned
         </div>
 
         {/* Two bar groups side by side */}
@@ -284,7 +284,7 @@ export const ResultsStats: React.FC = () => {
             startFrame={0}
           />
           <BarGroup
-            groupLabel="Train Loss (lower is better)"
+            groupLabel="Eval Loss (lower is better)"
             bars={lossBars}
             startFrame={0}
           />

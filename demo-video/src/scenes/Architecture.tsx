@@ -26,13 +26,13 @@ const STAGES: {
   },
   {
     title: "Data Pipeline",
-    subtitle: "Ingest → Generate → Quality Check",
+    subtitle: "Ingest → Generate fine-tuning data with Mistral Large → Quality Check",
     icon: "⚙️",
     bg: "#1A2000",
   },
   {
     title: "Fine-tune",
-    subtitle: "Mistral Small (3B)",
+    subtitle: "Mistral 8B Instruct",
     icon: "🧠",
     bg: "#2D1A00",
   },

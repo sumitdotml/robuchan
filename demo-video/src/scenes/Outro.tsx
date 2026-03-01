@@ -125,13 +125,13 @@ export const Outro: React.FC = () => {
         <div
           style={{
             opacity: creditOpacity,
-            color: COLORS.textSub,
+            color: COLORS.text,
             fontSize: 19,
             letterSpacing: 2,
             textTransform: "uppercase",
           }}
         >
-          Mistral AI Hackathon · Tokyo 2026
+          Mistral AI Worldwide Hackathon · Tokyo 2026
         </div>
       </AbsoluteFill>
     </Background>
