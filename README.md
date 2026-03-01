@@ -4,13 +4,15 @@
 
 Recipe adaptation fine-tuning for the Mistral AI Worldwide Hackathon Tokyo (Feb 28 - Mar 1, 2026).
 
-Fine-tune `mistral-small-latest` on synthetic dietary recipe adaptations generated from Food.com recipes via `mistral-large-latest`.
+Fine-tune `mistral-8b-instruct` on synthetic dietary recipe adaptations generated from Food.com recipes via `mistral-large-latest`. Outperforms Mistral 8B Instruct model by 15% (67% vs 82%). We use Mistral Large for generating the fine-tuning data from a Kaggle dataset(530K rows), fine-tune a Mistral 8B Instruct model, and then use LLM-as-a judge (Mistral Large) for evaluation.
 
 No connection to the famous chef [Joel Robuchon](https://en.wikipedia.org/wiki/Jo%C3%ABl_Robuchon).
 
-* Demo video: https://www.youtube.com/watch?v=LIlsP0OqTf4
-* Hugging face: Todo
-* W&B: Todo
+* Live Demo: https://huggingface.co/spaces/sumitdotml/robuchan-demo
+* Demo video: https://youtu.be/ag3KP1hceyQ
+* Github (code): https://github.com/sumitdotml/robuchan
+* Hugging face (data): https://huggingface.co/datasets/sumitdotml/robuchan-data
+* W&B (eval charts): https://wandb.ai/sumit-ml/robuchan/runs/bwsoosim
 
 ## Architecture
 
@@ -32,7 +34,7 @@ flowchart TD
 
     subgraph Training["Model Training"]
         Upload["Upload dataset"]
-        FineTune["Fine-tune Mistral Small"]
+        FineTune["Fine-tune Mistral 8B Instruct"]
         Model[/"Robuchan Model"/]
     end
 
@@ -144,12 +146,18 @@ W&B project does not need to be created manually beforehand in most cases; if th
 
 ## Stack
 
-- **Fine-tuning**: Mistral API (cloud, not local)
-- **Generation**: `mistral-large-latest` for synthetic training data
-- **Eval**: deterministic compliance + LLM-as-judge
-- **Tracking**: W&B (auto via Mistral `integrations` + manual eval logging)
-- **Demo**: Marimo
-- **Deps**: `uv`
+
+* **Fine-tuning**: Mistral API (cloud, not local)
+
+* **Generation**: `mistral-large-latest` for synthetic training data
+
+* **Eval**: deterministic compliance + LLM-as-judge
+
+* **Tracking**: W&B (auto via Mistral `integrations` + manual eval logging)
+
+* **Demo**: Marimo
+
+* **Deps**: `uv`
 
 ## Video generation
 
@@ -163,21 +171,20 @@ make render
 
 If the video does not render below, please see [demo-video/out/video.mp4](demo-video/out/video.mp4).
 
-https://github.com/user-attachments/assets/8ddb7e49-dd24-4684-a5ae-adaaff98c925
+https://github.com/user-attachments/assets/a9f258b2-b26c-4365-936b-ebe682192354
 
 ## Agent skills usage
 
 Under the Hugging Face Challenge, the following agent skills were used for the development of this project (& the demo video!):
 
+* **[mistake-memory-guardrails](.agents/skills/mistake-memory-guardrails/SKILL.md)**: Required before every repository edit (enforced in `AGENTS.md` + `CLAUDE.md`). Maintained [`AGENT_MISTAKES.md`](AGENT_MISTAKES.md) across sessions. Made data synthesis much faster, by identifying optimizations, patterns in the dataset to reduce API calls, and define static rules.
 
-- **[mistake-memory-guardrails](.agents/skills/mistake-memory-guardrails/SKILL.md)**: Required before every repository edit (enforced in `AGENTS.md` + `CLAUDE.md`). Maintained [`AGENT_MISTAKES.md`](AGENT_MISTAKES.md) across sessions. Made data synthesis much faster, by identifying optimizations, patterns in the dataset to reduce API calls, and define static rules.
+* **[coding-principles](.agents/skills/coding-principles/SKILL.md)**: Applied when writing and iterating on `data/prepare.py` and `data/audit_dataset.py`. These scripts populated the initial dataset from a Kaggle dataset, generated input data for fine-tuning Mistral models, and validated the data synthesis quality (see [data/gate.log](data/gate.log))
 
-- **[coding-principles](.agents/skills/coding-principles/SKILL.md)**: Applied when writing and iterating on `data/prepare.py` and `data/audit_dataset.py`. These scripts populated the initial dataset from a Kaggle dataset, generated input data for fine-tuning Mistral models, and validated the data synthesis quality (see [data/gate.log](data/gate.log))
+* **[remotion-best-practices](.clause/skills/remotion-best-practices)**: Use for demo video generation. Video at [demo-video/out/video.mp4](demo-video/out/video.mp4), log file at [logs/skill-video-generation.md](logs/skill-video-generation.md).
 
-- **[remotion-best-practices](.clause/skills/remotion-best-practices)**: Use for demo video generation. Video at [demo-video/out/video.mp4](demo-video/out/video.mp4), log file at [logs/skill-video-generation.md](logs/skill-video-generation.md).
+* **[design-taste-frontend](.agents/skills/design-taste-frontend/)**: Used for fonts, and design choices in the demo.
 
-- **[design-taste-frontend](.agents/skills/design-taste-frontend/)**: Used for fonts, and design choices in the demo.
+* **[commit](.agents/skills/commit/SKILL.md)**: Used for all git checkpoints throughout development. Enforced consistent message formatting.
 
-- **[commit](.agents/skills/commit/SKILL.md)**: Used for all git checkpoints throughout development. Enforced consistent message formatting.
-
-- **[writing-style](.agents/skills/writing-style/SKILL.md)**: Applied to planning and decision documents (`PLAN.md`, `DATASET_SCHEMA.md`, `CONSIDERING.md`, `LOG.md`).
+* **[writing-style](.agents/skills/writing-style/SKILL.md)**: Applied to planning and decision documents (`PLAN.md`, `DATASET_SCHEMA.md`, `CONSIDERING.md`, `LOG.md`).

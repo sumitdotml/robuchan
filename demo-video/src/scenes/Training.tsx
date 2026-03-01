@@ -194,7 +194,7 @@ export const Training: React.FC = () => {
             lineHeight: 1,
           }}
         >
-          Mistral Small
+          Mistral 8B Instruct
         </div>
 
         {/* Stat row — 3 boxes */}
@@ -214,20 +214,20 @@ export const Training: React.FC = () => {
             startFrame={statStartFrames[0]}
           />
           <StatBox
-            value="87.3%"
+            value="82%"
             valueColor={COLORS.green}
             label="our accuracy"
             startFrame={statStartFrames[1]}
           />
           <StatBox
-            value="72.1%"
+            value="67%"
             valueColor={COLORS.textSub}
             label="baseline accuracy"
             startFrame={statStartFrames[2]}
           />
         </div>
 
-        {/* +15.2pp badge */}
+        {/* Improvement badge */}
         <div
           style={{
             opacity: badgeOpacity,
@@ -242,7 +242,7 @@ export const Training: React.FC = () => {
             letterSpacing: 0.5,
           }}
         >
-          ▲ +15.2pp improvement
+          ▲ +15% improvement
         </div>
 
       </AbsoluteFill>

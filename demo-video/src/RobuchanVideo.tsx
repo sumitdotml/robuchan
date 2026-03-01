@@ -17,7 +17,7 @@ const INTRO_S = 7;
 const PROBLEM_S = 6;
 const TRAINING_S = 7;
 const RESULTS_STATS_S = 5.6;
-const RESULTS_CHAT_S = 16;
+const RESULTS_CHAT_S = 30;
 const ARCHITECTURE_S = 10;
 const OUTRO_S = 6;
 
