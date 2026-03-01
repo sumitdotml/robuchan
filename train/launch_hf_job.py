@@ -69,6 +69,8 @@ def cmd_launch(args: argparse.Namespace) -> int:
         f" --learning-rate {args.learning_rate}"
         f" --lora-r {args.lora_r}"
         f" --max-length {args.max_length}"
+        f" --per-device-train-batch-size {args.per_device_train_batch_size}"
+        f" --gradient-accumulation-steps {args.gradient_accumulation_steps}"
         " --push-to-hub"
         f" --hub-model-id {args.hub_model_id}"
         + (" --use-4bit" if args.use_4bit else "")
@@ -139,7 +141,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--cancel", type=str, metavar="JOB_ID", help="Cancel a job.")
 
     # Launch config
-    parser.add_argument("--flavor", type=str, default="t4-medium")
+    parser.add_argument("--flavor", type=str, default="a10g-large")
     parser.add_argument("--timeout", type=str, default="2h")
 
     # Training config
@@ -156,7 +158,9 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--no-eval", action="store_true", help="Skip evaluation (saves VRAM on tight GPUs)."
     )
-    parser.add_argument("--max-length", type=int, default=1024, help="Max sequence length.")
+    parser.add_argument("--max-length", type=int, default=2048, help="Max sequence length.")
+    parser.add_argument("--per-device-train-batch-size", type=int, default=1)
+    parser.add_argument("--gradient-accumulation-steps", type=int, default=16)
     parser.add_argument("--hub-model-id", type=str, default="sumitdotml/robuchan")
     parser.add_argument(
         "--wandb-project", type=str, default=os.environ.get("WANDB_PROJECT", "robuchan")
