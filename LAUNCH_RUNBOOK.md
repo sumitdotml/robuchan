@@ -112,7 +112,7 @@ Run local inference against the HF adapter:
 
 ```bash
 uv run python eval/evaluate.py \
-  --input data/quick50.jsonl \
+  --input eval/quick50.jsonl \
   --split-name quick50 \
   --model sumitdotml/robuchan \
   --inference-backend hf_local \
@@ -123,7 +123,7 @@ With judge scoring enabled (requires `MISTRAL_API_KEY`):
 
 ```bash
 uv run python eval/evaluate.py \
-  --input data/quick50.jsonl \
+  --input eval/quick50.jsonl \
   --split-name quick50 \
   --model sumitdotml/robuchan \
   --inference-backend hf_local

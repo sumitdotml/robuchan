@@ -281,7 +281,7 @@ def build_h3(
         "## Next Action\n\n"
         f"- Owner: {owner}\n"
         "- Deadline (JST): N/A\n"
-        "- Command(s): `uv run python eval/evaluate.py --input data/final150.jsonl --split-name final150`\n"
+        "- Command(s): `uv run python eval/evaluate.py --input eval/final150.jsonl --split-name final150`\n"
     )
 
 

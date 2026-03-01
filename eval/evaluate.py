@@ -4,20 +4,20 @@
 Input split creation:
   This script does not create eval splits.
   Expected files are produced by the dataset creation/export pipeline:
-  - data/quick50.jsonl
-  - data/final150.jsonl
+  - eval/quick50.jsonl
+  - eval/final150.jsonl
   - eval/hard_cases.jsonl
 
 Examples:
   # evaluating fine-tuned model on quick gate
   uv run python eval/evaluate.py \
-    --input data/quick50.jsonl \
+    --input eval/quick50.jsonl \
     --split-name quick50 \
     --model ft:...
 
   # evaluating fine-tuned model on final freeze set
   uv run python eval/evaluate.py \
-    --input data/final150.jsonl \
+    --input eval/final150.jsonl \
     --split-name final150 \
     --model ft:...
 
@@ -29,19 +29,19 @@ Examples:
 
   # using fine_tuned_model from artifacts/ft_run_manifest.json
   uv run python eval/evaluate.py \
-    --input data/final150.jsonl \
+    --input eval/final150.jsonl \
     --split-name final150
 
   # deterministic-only run (no judge API calls)
   uv run python eval/evaluate.py \
-    --input data/quick50.jsonl \
+    --input eval/quick50.jsonl \
     --split-name quick50 \
     --model ft:... \
     --disable-judge
 
   # local HF adapter inference (no Mistral inference API call)
   uv run python eval/evaluate.py \
-    --input data/quick50.jsonl \
+    --input eval/quick50.jsonl \
     --split-name quick50 \
     --model sumitdotml/robuchan \
     --inference-backend hf_local \
@@ -49,7 +49,7 @@ Examples:
 
   # dry-run smoke test (no inference API calls)
   uv run python eval/evaluate.py \
-    --input data/quick50.jsonl \
+    --input eval/quick50.jsonl \
     --split-name quick50 \
     --model mistral-small-latest \
     --disable-judge \
@@ -57,7 +57,7 @@ Examples:
 
   # W&B auto-logging when WANDB_API_KEY is set
   uv run python eval/evaluate.py \
-    --input data/final150.jsonl \
+    --input eval/final150.jsonl \
     --split-name final150 \
     --model ft:... \
     --wandb-project robuchan
