@@ -1,0 +1,65 @@
+ ~/G/h/mistral-hackathon-2026   *…  uv run python data/prepare.py ingest --target-size 1000000                                         11.4s  Sat 28 February 2026 10:17:03 AM
+─────────────────────────────────────────────────────────────────── Block 1: Food.com Ingest + Source Curation ───────────────────────────────────────────────────────────────────
+Using cached dataset: /Users/kaustubh/.cache/kagglehub/datasets/irkaal/foodcom-recipes-and-reviews/versions/2/recipes.csv
+Data path: /Users/kaustubh/.cache/kagglehub/datasets/irkaal/foodcom-recipes-and-reviews/versions/2/recipes.csv
+Loading /Users/kaustubh/.cache/kagglehub/datasets/irkaal/foodcom-recipes-and-reviews/versions/2/recipes.csv...
+  Loaded 522,517 raw rows | Columns: ['RecipeId', 'Name', 'AuthorId', 'AuthorName', 'CookTime', 'PrepTime', 'TotalTime', 'DatePublished']...
+  Parse OK: 473,503 | Skipped: {'too_few_ingredients': 30544, 'too_few_steps': 18470}
+  Recipes with violations: 1,904,825 entries | No violations: 17,394
+    vegetarian: 171,513
+    vegan: 391,579
+    dairy_free: 287,440
+    gluten_free: 182,071
+    egg_free: 136,299
+    shellfish_free: 14,449
+    nut_free: 51,538
+    low_sodium: 253,638
+    low_sugar: 197,446
+    low_fat: 218,852
+
+  Selected 456,109 source recipes:
+    vegetarian: 150,936
+    vegan: 120,000
+    dairy_free: 104,342
+    gluten_free: 26,946
+    egg_free: 5,138
+    shellfish_free: 253
+    nut_free: 5,037
+    low_sodium: 28,973
+    low_sugar: 14,336
+    low_fat: 148
+  Constraints coverage check (115,041 unique ingredients):
+    vegetarian: 14,346 matched | GAPS(103)
+      sample gaps: ['1 -2 mexican vegetarian ground meat substitute', '1 1/2 - 2 crushed saltine meatloaf', '1 1/2 beefsteak tomato']
+    vegan: 27,022 matched | OK
+    dairy_free: 11,511 matched | GAPS(377)
+      sample gaps: ['1  - 1 1/2 soymilk', '1  - 1 1/4 plain soymilk', '1 -2 light vanilla soymilk']
+    gluten_free: 7,454 matched | GAPS(223)
+      sample gaps: ['0.5 buckwheat noodle', '1  - 1 1/2 other pastas', '1 -2 buckwheat groats']
+    egg_free: 1,306 matched | OK
+    shellfish_free: 1,401 matched | OK
+    nut_free: 2,564 matched | OK
+    low_sodium: 4,070 matched | OK
+    low_sugar: 4,906 matched | OK
+    low_fat: 4,828 matched | OK
+
+Block 1 COMPLETE
+  Source pool:  456,109 recipes
+  Artifact:     /Users/kaustubh/GitHub/hackathons/mistral-hackathon-2026/artifacts/source_pool_summary.json
+               Constraint Distribution
+┏━━━━━━━━━━━━━━━━┳━━━━━━━━┳━━━━━━━━┳━━━━━━━━┳━━━━━━━━┓
+┃ Constraint     ┃  Count ┃ Tmpl A ┃ Tmpl B ┃ Tmpl C ┃
+┡━━━━━━━━━━━━━━━━╇━━━━━━━━╇━━━━━━━━╇━━━━━━━━╇━━━━━━━━┩
+│ vegetarian     │ 150936 │  75510 │  45214 │  30212 │
+│ vegan          │ 120000 │  60023 │  36110 │  23867 │
+│ dairy_free     │ 104342 │  51916 │  31643 │  20783 │
+│ gluten_free    │  26946 │  13452 │   8095 │   5399 │
+│ egg_free       │   5138 │   2533 │   1533 │   1072 │
+│ shellfish_free │    253 │    117 │     79 │     57 │
+│ nut_free       │   5037 │   2482 │   1548 │   1007 │
+│ low_sodium     │  28973 │  14527 │   8673 │   5773 │
+│ low_sugar      │  14336 │   7212 │   4253 │   2871 │
+│ low_fat        │    148 │     70 │     53 │     25 │
+└────────────────┴────────┴────────┴────────┴────────┘
+
+Next step: uv run python data/prepare.py generate

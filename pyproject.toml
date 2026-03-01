@@ -6,8 +6,13 @@ readme = "README.md"
 requires-python = ">=3.11"
 dependencies = [
     "datasets",
+    "kagglehub",
     "marimo",
     "mistralai",
+    "pandas",
+    "python-dotenv>=1.2.1",
     "rich",
+    "huggingface-hub>=0.27",
     "wandb",
+    "matplotlib>=3.10.8",
 ]

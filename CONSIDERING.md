@@ -91,6 +91,38 @@ Dominant drop reasons:
 
 **Decision criteria:** coverage check passes when a manual review of 50 random flagged-vs-unflagged ingredients shows <= 2 false negatives (missed violations) and <= 2 false positives (wrongly flagged compliant ingredients).
 
+## Metrics Under Consideration
+
+### Swap Anchor Rate (candidate replacement for relevance + plausibility)
+
+**Problem**: Both `relevance_score` and `substitution_plausibility_score` were removed or flagged as weak signals.
+- `relevance_score`: penalizes good additional swaps; set-diff normalization is fragile; doesn't catch hallucinated additions
+- `plausibility_score`: too strict; checked adapted output text (normalization issues) rather than stated pairs
+
+**Proposed metric**: `swap_anchor_rate`
+
+For each `{from, to, reason}` in `replacement_pairs`:
+- `from_grounded`: `pair["from"]` (normalized) exists in `source_ingredients` — catches model fabricating swaps from non-existent ingredients
+- `to_valid`: `pair["to"]` (normalized) appears in any KB "to" value for this restriction — catches nonsense replacements
+
+```
+swap_anchor_rate = valid_pairs / max(1, total_pairs)
+```
+
+Why it's better than both:
+- Directly audits stated swaps instead of inferring changes from ingredient set diffs
+- Does not penalize good additional swaps to non-restricted ingredients
+- Catches both failure modes: hallucinated "from" and nonsense "to"
+- Low implementation cost — `replacement_pairs` already parsed, KB already loaded
+
+Edge case: if `replacement_pairs` is empty, score is undefined. Gated by `nontriviality_score` already.
+
+Implementation note: precompute a flat set of all KB "to" values per restriction from `kb/swaps_v0.json`.
+
+**Status**: Not yet implemented. Decision pending.
+
+---
+
 ## References
 
 - Food.com Kaggle dataset: <https://www.kaggle.com/datasets/irkaal/foodcom-recipes-and-reviews/data>

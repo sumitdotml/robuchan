@@ -2,6 +2,30 @@
 
 for tracking changes and updates in the project.
 
+## 2026-03-01
+
+### Policy Change
+
+- Dropped adaptive second-candidate policy in favor of **single-candidate drop-on-fail**.
+- Reason: if candidate 1 fails, generating a candidate 2 rarely recovers — the model tends to repeat the same failure pattern on the same recipe + constraint pair. Simpler to move to the next source recipe.
+
+### Changes
+
+- `data/prepare.py`:
+  - Removed `should_trigger_candidate2` import and all candidate-2 trigger logic.
+  - Flattened the `for candidate_num in range(1, 3)` loop to a single unconditional API call.
+  - Removed `generation_candidate_num` field from master row schema.
+  - Removed `candidate2_count` / `adaptive_rate` from state tracking and generation summary artifact.
+- `PLAN.md`:
+  - Updated summary, locked decisions, budget estimate, candidate-generation contract, pipeline steps, target counts, Block 2 timeline, and acceptance criteria to reflect single-candidate policy.
+
+### Implications
+
+- Source pool must be large enough that ~40-60% pass rate on candidates still yields `1200` kept pairs.
+- Failed recipes simply do not contribute — no extra API spend on retry candidates.
+
+---
+
 ## 2026-02-28
 
 ### Decision

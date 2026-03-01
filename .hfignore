@@ -1,0 +1,40 @@
+# Secrets
+.env
+.env.local
+
+# Generated / large artifacts
+artifacts/
+data/*.jsonl
+eval/results_*.json
+train/job_result.json
+
+# Python
+__pycache__/
+*.pyc
+*.egg-info/
+dist/
+build/
+
+# HF cache
+.hf_cache/
+.hf-cache/
+
+# OS
+.DS_Store
+
+# Node
+node_modules/
+
+# Project specific
+*.md
+!README.md
+!RESOURCES.md
+.env.example
+.python-version
+*.toml
+uv.lock
+ideas/
+docs/
+.venv/
+.agents/
+*.png

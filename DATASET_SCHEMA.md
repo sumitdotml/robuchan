@@ -56,7 +56,6 @@ One JSON object per line.
     "constraint_pass": 1,
     "relevance_score": 0.81,
     "nontriviality_score": 0.88,
-    "substitution_plausibility_score": 0.76,
     "semantic_completeness_pass": 1
   },
   "kept_for_training": true,
@@ -86,16 +85,13 @@ One JSON object per line.
 |---|---|
 | `generation_attempt_count` | Distinguishes one-pass rows vs adaptive second-attempt rows. |
 
-## 2) Adaptive Candidate Policy
+## 2) Candidate Policy
 
 Per source recipe:
 
-1. Generate candidate 1.
-2. Score candidate 1.
-3. Generate candidate 2 only if candidate 1 fails either trigger:
-   - `constraint_pass == 0`, or
-   - `substitution_plausibility_score < 0.65`
-4. Keep one winning candidate for that source recipe.
+1. Generate one candidate.
+2. Score the candidate.
+3. Keep it if it passes all quality triggers; otherwise drop the recipe and move to the next source.
 
 ## 3) Deterministic Score Definitions
 
@@ -108,9 +104,7 @@ No extra judge API calls are required for these scores.
    - formula: `retained_nonrestricted_source_ingredients / total_nonrestricted_source_ingredients`.
 3. `nontriviality_score` (`0-1`):
    - formula: `0.8 * (replaced_violations / max(1, total_violations)) + 0.2 * step_changed_flag`.
-4. `substitution_plausibility_score` (`0-1`):
-   - formula: `0.7 * kb_match_rate + 0.3 * valid_food_term_rate`.
-5. `semantic_completeness_pass` (`0/1`):
+4. `semantic_completeness_pass` (`0/1`):
    - `1` only if user content includes recipe title, ingredients, steps, and restrictions.
 
 ### Ingredient Normalization Rule (for relevance scoring)

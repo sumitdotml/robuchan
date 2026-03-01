@@ -9,7 +9,11 @@
       "WebFetch(domain:worldwide-hackathon.mistral.ai)",
       "mcp__plugin_context7_context7__resolve-library-id",
       "WebFetch(domain:docs.wandb.ai)",
-      "WebFetch(domain:machinelearning.apple.com)"
+      "WebFetch(domain:machinelearning.apple.com)",
+      "Bash(uv sync)",
+      "Bash(uv run python -c \"import data.audit_dataset; import data.prepare; print\\(''Imports OK''\\)\")",
+      "Bash(uv run python data/prepare.py ingest)",
+      "Bash(osascript -e 'tell application \"\"Terminal\"\" to do script \"\"uv run python data/prepare.py ingest\"\"')"
     ]
   },
   "hooks": {

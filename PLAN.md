@@ -3,7 +3,7 @@
 ## Summary
 
 - Primary strategy: use **Food.com recipes as source pool**, generate synthetic dietary adaptations with `mistral-large-latest`, and fine-tune `mistral-small-latest` on audited outputs.
-- Target dataset for training: **1200 final filtered pairs** from approximately **1200-2400 generated candidates** (adaptive candidate policy).
+- Target dataset for training: **1200 final filtered pairs**. Single candidate per recipe; failed candidates are dropped.
 - Prompt policy: keep semantic payload constant while varying user phrasing/templates to avoid rigid-format overfitting.
 - Evaluation structure remains: **quick50 + final150 + hard30**.
 - Work is split across two separate Mistral workspaces due billing/access constraints:
@@ -29,7 +29,7 @@ Local Machine                       Mistral API                          W&B
 ## Locked Decisions
 
 1. Primary data strategy: **Food.com + synthetic generation**.
-2. Generation policy: **adaptive candidates**: generate candidate 1 for all rows; generate candidate 2 only when candidate 1 fails quality triggers.
+2. Generation policy: **single candidate per recipe**: generate one candidate; drop the recipe if it fails quality triggers.
 3. Synthetic target: **1200 final filtered pairs**.
 4. Fallback policy: **pause if Food.com ingest fails**.
 5. Command style: `uv`-based workflow in docs and scripts.
@@ -49,7 +49,7 @@ Local Machine                       Mistral API                          W&B
 ## Budget Guardrails
 
 - Available credits: `$15` per workspace (not pooled).
-- Synthetic generation estimate (adaptive `1200-2400` generations): **~$6.60-$13.20** total (based on updated token assumptions: ~330 input, ~700 output for richer prompts/responses).
+- Synthetic generation estimate (~1200-2000 generations): **~$3.30-$11.00** total (based on updated token assumptions: ~330 input, ~700 output for richer prompts/responses).
 - Budget routing:
   - Workspace B should carry synthetic generation spend.
   - Workspace A should reserve budget for fine-tune + eval + demo.
@@ -88,22 +88,15 @@ Each kept example must include:
   - `constraint_pass`
   - `relevance_score`
   - `nontriviality_score`
-  - `substitution_plausibility_score`
   - `semantic_completeness_pass`
 - `kept_for_training`
 - `kb_version` (must reference `swaps_v0`)
 
-Optional (lightweight ops metadata):
-
-- `generation_attempt_count` (`1` or `2`)
-
 ### Candidate-generation contract
 
-- Generate candidate 1 for every source recipe.
-- Trigger candidate 2 only if candidate 1 fails:
-  - `constraint_pass == 0`, or
-  - `substitution_plausibility_score < 0.65`.
-- Keep one retained candidate per source/constraint pair using deterministic score-first ranking.
+- Generate one candidate per source recipe.
+- If the candidate fails any quality trigger, drop the recipe and move to the next source.
+- Keep one passing candidate per source/constraint pair.
 
 ### Required artifacts
 
@@ -128,15 +121,14 @@ Selection rules for candidate source recipes:
 
 1. Ingest and normalize Food.com source recipes.
 2. Assign target dietary constraint per selected recipe.
-3. Generate candidate 1 using `mistral-large-latest`.
-4. Score candidate 1 with deterministic audit rules.
-5. Generate candidate 2 only if adaptive trigger fires.
-6. Keep top passing candidate per source recipe.
-7. Continue until **1200 filtered pairs** are collected.
+3. Generate candidate using `mistral-large-latest`.
+4. Score candidate with deterministic audit rules.
+5. Keep the candidate if it passes; otherwise drop the recipe.
+6. Continue until **1200 filtered pairs** are collected.
 
 Target counts:
 
-- Approximate generated candidates: **1200-2400**
+- Approximate generated candidates: **1200-2000**
 - Final kept training pairs: **1200**
 
 ### Prompt semantics + template variation policy (hard requirement)
@@ -299,10 +291,7 @@ These checks run on every generated assistant response before it enters `interna
    - formula: `retained_nonrestricted_source_ingredients / total_nonrestricted_source_ingredients`.
 3. `nontriviality_score` (`0-1`):
    - formula: `0.8 * (replaced_violations / max(1, total_violations)) + 0.2 * step_changed_flag`.
-4. `substitution_plausibility_score` (`0-1`):
-   - uses required `kb/swaps_v0.json` (20-30+ curated rules) plus food-term validity check.
-   - formula: `0.7 * kb_match_rate + 0.3 * valid_food_term_rate`.
-5. `semantic_completeness_pass` (`0/1`):
+4. `semantic_completeness_pass` (`0/1`):
    - `1` only if user prompt contains recipe title, ingredients, steps, and restrictions fields (any of the approved templates).
 
 ### Quality gate before fine-tuning
@@ -313,10 +302,9 @@ Do not start fine-tuning until all of the following pass on generated data:
 2. Semantic completeness check pass rate `= 100%` on kept set
 3. Assistant completeness validation pass rate `= 100%` on kept set (all 4 rejection checks)
 4. Mean `relevance_score` on kept set `>= 0.55`
-5. Mean `substitution_plausibility_score` on kept set `>= 0.65`
-6. Nontrivial adaptation pass rate (`nontriviality_score >= 0.5`) `>= 90%` on kept set
-7. Template distribution on kept set is near target split (A/B/C = 50/30/20 with `+/-10` percentage points per bucket)
-8. Manual 10-row spot-check pass `>= 80%` before launching fine-tuning
+5. Nontrivial adaptation pass rate (`nontriviality_score >= 0.5`) `>= 90%` on kept set
+6. Template distribution on kept set is near target split (A/B/C = 50/30/20 with `+/-10` percentage points per bucket)
+7. Manual 10-row spot-check pass `>= 80%` before launching fine-tuning
 
 ## JSONL Format (Mistral API)
 
@@ -436,16 +424,21 @@ Reliability rule:
 - Produce `artifacts/source_pool_summary.json`.
 - Run constraints coverage check: extract unique ingredients from source pool, cross-reference against `eval/constraints.json`, extend banned lists with discovered gaps. Must pass before Block 2.
 - Exit gate: curated source pool exists, parse checks pass, and constraints coverage validated.
+- Execution: `uv run python data/prepare.py ingest`
 
 **Block 2 (12:00-14:00): Synthetic Generation + Audit Loop [120 min]**
 
-- Generate candidate 1 for each source recipe with `mistral-large-latest` (Workspace B).
-- Trigger candidate 2 only on failed candidate 1 (`constraint_pass==0` or low plausibility).
+- Generate one candidate per source recipe with `mistral-large-latest` (Workspace B).
+- Drop recipe if candidate fails quality checks; move to next source.
 - Run 4 deterministic assistant completeness checks on each candidate before it enters `internal_master` (reject `...`, reject unparseable ingredients, reject unmapped violations, reject banned-term leakage).
 - Audit and retain one best passing candidate per source.
 - Continue until `1200` filtered pairs OR stop condition.
 - Produce `artifacts/synthetic_generation_summary.json` and `artifacts/dataset_audit_summary.json`.
 - **Hard gate**: do not start fine-tuning until 1200-pair and quality-gate criteria are met.
+- Execution: `uv run python data/prepare.py generate`
+  - `sh watch-progress.sh`: prints the current number of records in the generated records every minute.
+  - `uv run python data/audit_dataset.py gate` runs quality metrics. Output in `data/gate.log`.
+  - Extra: `uv run python data/plot_response_times.py` generates `data/response_times.png`, a graph of Mistral API's latency as a function of time.
 
 **Block 3 (14:00-15:00): Upload + Launch Fine-Tuning [60 min]**
 
@@ -474,7 +467,7 @@ If not met: run one contingency tuning iteration within remaining budget.
 **Block 5 (09:00-11:00): Final Eval Freeze [120 min]**
 
 - Execute `final150` and `hard30` on best model.
-- Run manual 30-row plausibility review (`>= 85%`) on kept training set sample.
+- Run manual 30-row adaptation quality spot-check (`>= 85%`) on kept training set sample.
 - Freeze metrics and artifacts.
 
 **Block 6 (11:00-13:00): Demo Hardening [120 min]**
@@ -512,17 +505,17 @@ Required handoff artifacts remain in `docs/handoffs/H0` to `H4` with timestamps 
 
 ## Acceptance Criteria (Must-Have)
 
-1. Synthetic dataset target met: `1200` filtered pairs from adaptive candidate policy.
+1. Synthetic dataset target met: `1200` filtered pairs (single-candidate policy, drop-on-fail).
 2. Synthetic quality gates pass:
   - `constraint_pass_rate_on_kept >= 98%`
   - `semantic_completeness_pass_rate_on_kept = 100%`
   - `assistant_completeness_validation_pass_rate_on_kept = 100%`
   - `mean_relevance_score_on_kept >= 0.55`
-  - `mean_substitution_plausibility_score_on_kept >= 0.65`
   - nontrivial adaptation pass rate (`nontriviality_score >= 0.5`) `>= 90%`
   - template mix near `50/30/20` (`+/-10` points per bucket)
   - manual 10-row pre-FT spot-check pass `>= 80%`
-  - manual 30-row final-freeze plausibility pass `>= 85%`
+  - manual 30-row final-freeze adaptation quality pass `>= 85%`
+
 3. Fine-tuned model improves over base (`+5%` pass rate or `+0.5` judge score or `hard_case_win_rate >= 60%`).
 4. W&B metrics and artifacts are complete.
 5. Demo passes 3 consecutive runs (live or cached mode).
