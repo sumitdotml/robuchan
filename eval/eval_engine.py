@@ -30,7 +30,7 @@ DEFAULT_MANIFEST_PATH = Path("artifacts/ft_run_manifest.json")
 DEFAULT_JUDGE_MODEL = "mistral-large-latest"
 DEFAULT_EVAL_MAX_TOKENS = 1400
 DEFAULT_JUDGE_MAX_TOKENS = 700
-DEFAULT_WANDB_PROJECT = "recipe-remix"
+DEFAULT_WANDB_PROJECT = "robuchan"
 
 SECTION_HEADERS = (
     "substitution plan",
@@ -731,7 +731,7 @@ def build_parser(
         default=None,
         help=(
             "W&B project override. If omitted and WANDB_API_KEY is set, "
-            "uses WANDB_PROJECT or defaults to recipe-remix."
+            "uses WANDB_PROJECT or defaults to robuchan."
         ),
     )
     parser.add_argument("--wandb-entity", type=str, default=None)

@@ -351,8 +351,8 @@ job = client.fine_tuning.jobs.create(
     validation_files=[val_file.id],
     hyperparameters={"training_steps": 100, "learning_rate": 1e-4},
     auto_start=False,
-    integrations=[{"project": "recipe-remix", "api_key": os.environ["WANDB_API_KEY"]}],
-    suffix="recipe-remix-foodcom-synth",
+    integrations=[{"project": "robuchan", "api_key": os.environ["WANDB_API_KEY"]}],
+    suffix="robuchan-foodcom-synth",
 )
 
 client.fine_tuning.jobs.start(job_id=job.id)

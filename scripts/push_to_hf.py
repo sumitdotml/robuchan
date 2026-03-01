@@ -1,12 +1,14 @@
 """
-Push the repo to sumitdotml/arena-dei-poveri on Hugging Face.
+Push the repo to Hugging Face dataset/model repos.
 
 Uses upload_folder with create_pr=True to open a PR
 without requiring direct push access to main.
 Ignore patterns are read from .hfignore at the repo root.
 
 Usage:
-    uv run python scripts/push_to_hf.py [--repo-type dataset]
+    uv run python scripts/push_to_hf.py                      # dataset -> sumitdotml/robuchan-data
+    uv run python scripts/push_to_hf.py --repo-type model   # model   -> sumitdotml/robuchan
+    uv run python scripts/push_to_hf.py --repo-id sumitdotml/custom-repo
 """
 
 import argparse
@@ -16,7 +18,10 @@ from pathlib import Path
 from dotenv import load_dotenv
 from huggingface_hub import HfApi
 
-REPO_ID = "sumitdotml/arena-dei-poveri"
+DEFAULT_REPO_IDS = {
+    "dataset": "sumitdotml/robuchan-data",
+    "model": "sumitdotml/robuchan",
+}
 REPO_ROOT = Path(__file__).resolve().parent.parent
 
 
@@ -42,6 +47,14 @@ def main() -> None:
         choices=["dataset", "model", "space"],
         help="HF repo type (default: dataset)",
     )
+    parser.add_argument(
+        "--repo-id",
+        default=None,
+        help=(
+            "HF repo id override. Defaults: "
+            "dataset->sumitdotml/robuchan-data, model->sumitdotml/robuchan"
+        ),
+    )
     args = parser.parse_args()
 
     load_dotenv(REPO_ROOT / ".env")
@@ -53,11 +66,17 @@ def main() -> None:
     print(f"Loaded {len(ignore_patterns)} ignore patterns from .hfignore")
 
     api = HfApi(token=token)
+    repo_id = args.repo_id or DEFAULT_REPO_IDS.get(args.repo_type)
+    if not repo_id:
+        raise RuntimeError(
+            f"No default repo configured for repo_type={args.repo_type!r}; "
+            "pass --repo-id explicitly."
+        )
 
-    print(f"Uploading {REPO_ROOT} → {REPO_ID} (type={args.repo_type})...")
+    print(f"Uploading {REPO_ROOT} → {repo_id} (type={args.repo_type})...")
     result = api.upload_folder(
         folder_path=str(REPO_ROOT),
-        repo_id=REPO_ID,
+        repo_id=repo_id,
         repo_type=args.repo_type,
         ignore_patterns=ignore_patterns,
         create_pr=True,

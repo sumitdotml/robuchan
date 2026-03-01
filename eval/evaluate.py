@@ -52,7 +52,7 @@ Examples:
     --input data/final150.jsonl \
     --split-name final150 \
     --model ft:... \
-    --wandb-project recipe-remix
+    --wandb-project robuchan
 """
 
 from __future__ import annotations

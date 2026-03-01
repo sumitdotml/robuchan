@@ -1,4 +1,4 @@
-# Arena dei Poveri
+# Robuchan
 
 Recipe adaptation fine-tuning for the Mistral AI Worldwide Hackathon Tokyo (Feb 28 - Mar 1, 2026).
 
@@ -64,8 +64,8 @@ uv run python train/finetune.py create-job \
   --model mistral-small-latest \
   --training-steps 100 \
   --learning-rate 1e-4 \
-  --suffix recipe-remix-foodcom-synth \
-  --wandb-project recipe-remix
+  --suffix robuchan-foodcom-synth \
+  --wandb-project robuchan
 
 uv run python train/finetune.py start-job
 uv run python train/finetune.py wait
@@ -73,7 +73,7 @@ uv run python train/finetune.py status --json
 ```
 
 Job/file IDs are saved to `artifacts/ft_run_manifest.json`.
-When `WANDB_API_KEY` is set, W&B tracking is enabled automatically. The project is selected from `--wandb-project`, then `WANDB_PROJECT`, then `recipe-remix`.
+When `WANDB_API_KEY` is set, W&B tracking is enabled automatically. The project is selected from `--wandb-project`, then `WANDB_PROJECT`, then `robuchan`.
 W&B project does not need to be created manually beforehand in most cases; if the API key has permission, the run can create the project on first write.
 
 ## Stack
