@@ -362,7 +362,7 @@ status = client.fine_tuning.jobs.get(job_id=job.id)
 ## Evaluation: Deterministic + LLM-as-Judge
 
 - Deterministic compliance uses `eval/constraints.json`.
-- LLM-as-judge (Mistral Large) rates: compliance, flavor fidelity, dish identity preservation, explanation quality.
+- Nice to have: LLM-as-judge (Mistral Large) rates: compliance, flavor fidelity, dish identity preservation, explanation quality.
 
 ### Evaluation stages
 
