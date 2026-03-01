@@ -15,7 +15,7 @@ Typical flow:
   # example: fine-tune Ministral 3B
   uv run python train/finetune.py create-job \
     --model ministral-3b-latest \
-    --training-steps 100 \
+    --training-steps 40 \
     --learning-rate 1e-4 \
     --suffix robuchan-foodcom-synth \
     --wandb-project robuchan
@@ -43,7 +43,7 @@ from mistralai.models.sdkerror import SDKError
 DEFAULT_MANIFEST_PATH = Path("artifacts/ft_run_manifest.json")
 DEFAULT_MODEL = "mistral-small-latest"
 DEFAULT_SUFFIX = "robuchan-foodcom-synth"
-DEFAULT_TRAIN_STEPS = 100
+DEFAULT_TRAIN_STEPS = 40
 DEFAULT_LEARNING_RATE = 1e-4
 DEFAULT_WANDB_PROJECT = "robuchan"
 DEFAULT_QUALITY_GATE_PATH = Path("artifacts/quality_gate_report.json")

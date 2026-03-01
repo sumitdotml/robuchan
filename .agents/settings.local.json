@@ -16,7 +16,8 @@
       "Bash(osascript -e 'tell application \"\"Terminal\"\" to do script \"\"uv run python data/prepare.py ingest\"\"')",
       "WebFetch(domain:api.github.com)",
       "Bash(npx tsc --noEmit)",
-      "WebFetch(domain:archive.org)"
+      "WebFetch(domain:archive.org)",
+      "Bash(tmux capture-pane:*)"
     ]
   },
   "hooks": {

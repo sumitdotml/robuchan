@@ -106,6 +106,11 @@ uv run python train/preflight.py \
   --valid-path data/valid_filtered.jsonl
 ```
 
+Validation size note:
+- Hard API limit is `1MB` for validation file size.
+- Mistral FAQ rule-of-thumb max is `min(1MB, 5% of training file size)`.
+- For current files (~5.18MB train, ~0.597MB valid), validation is above the rule-of-thumb max (~0.259MB) but still under the hard 1MB limit.
+
 Upload files and create/start a job:
 
 ```bash
@@ -118,7 +123,7 @@ uv run python train/finetune.py check-quality-gate \
 
 uv run python train/finetune.py create-job \
   --model mistral-small-latest \
-  --training-steps 100 \
+  --training-steps 40 \
   --learning-rate 1e-4 \
   --suffix robuchan-foodcom-synth \
   --wandb-project robuchan
@@ -127,6 +132,11 @@ uv run python train/finetune.py start-job
 uv run python train/finetune.py wait
 uv run python train/finetune.py status --json
 ```
+
+Hyperparameter rationale for the default launch command:
+- `training_steps=40` is dataset-sized for current train file (~5.18 MB), which is ~7.7 epochs using Mistral FAQ rule-of-thumb: `epochs ≈ steps / train_file_MB`.
+- `learning_rate=1e-4` follows Mistral's recommended range for LoRA-style runs (`1e-4` or `1e-5`).
+- If dataset size changes, recompute steps from the same formula instead of reusing 40 blindly.
 
 Job/file IDs are saved to `artifacts/ft_run_manifest.json`.
 When `WANDB_API_KEY` is set, W&B tracking is enabled automatically. The project is selected from `--wandb-project`, then `WANDB_PROJECT`, then `robuchan`.
