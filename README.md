@@ -147,7 +147,7 @@ make preview
 make render
 ```
 
-<video src="./demo-video/out/video.mp4" controls width="100%"></video>
+<video src="https://raw.githubusercontent.com/sumitdotml/mistral-hackathon-2026/demo/demo-video/out/video.mp4" controls width="100%"></video>
 
 
 ## Agent skills usage
@@ -159,7 +159,7 @@ Under the Hugging Face Challenge, the following agent skills were used for the d
 
 - **[coding-principles](.agents/skills/coding-principles/SKILL.md)**: Applied when writing and iterating on `data/prepare.py` and `data/audit_dataset.py`. These scripts populated the initial dataset from a Kaggle dataset, generated input data for fine-tuning Mistral models, and validated the data synthesis quality (see [data/gate.log](data/gate.log))
 
-- **[remotion-best-practices](.clause/skills/remotion-best-practices)**: Use for demo video generation.
+- **[remotion-best-practices](.clause/skills/remotion-best-practices)**: Use for demo video generation. Available at [demo-video/out/video.mp4](demo-video/out/video.mp4)
 
 - **[design-taste-frontend](.agents/skills/design-taste-frontend/)**: Used for fonts, and design choices in the demo.
 
