@@ -188,7 +188,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--train-path", type=Path, default=Path("data/train_filtered.jsonl"))
     parser.add_argument("--valid-path", type=Path, default=Path("data/valid_filtered.jsonl"))
     parser.add_argument("--constraints-path", type=Path, default=Path("eval/constraints.json"))
-    parser.add_argument("--quality-gate-path", type=Path, default=Path("artifacts/dataset_audit_summary.json"))
+    parser.add_argument("--quality-gate-path", type=Path, default=Path("artifacts/quality_gate_report.json"))
     parser.add_argument("--target-kept-rows", type=int, default=1200)
     parser.add_argument("--manifest-path", type=Path, default=Path("artifacts/ft_run_manifest.json"))
     parser.add_argument("--require-manifest", action="store_true")

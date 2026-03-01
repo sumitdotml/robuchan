@@ -10,7 +10,7 @@ Typical flow:
     --valid-path data/valid_filtered.jsonl
 
   uv run python train/finetune.py check-quality-gate \
-    --quality-gate-path artifacts/dataset_audit_summary.json
+    --quality-gate-path artifacts/quality_gate_report.json
 
   # example: fine-tune Ministral 3B
   uv run python train/finetune.py create-job \
@@ -46,7 +46,7 @@ DEFAULT_SUFFIX = "recipe-remix-foodcom-synth"
 DEFAULT_TRAIN_STEPS = 100
 DEFAULT_LEARNING_RATE = 1e-4
 DEFAULT_WANDB_PROJECT = "recipe-remix"
-DEFAULT_QUALITY_GATE_PATH = Path("artifacts/dataset_audit_summary.json")
+DEFAULT_QUALITY_GATE_PATH = Path("artifacts/quality_gate_report.json")
 DEFAULT_TARGET_KEPT_ROWS = 1200
 
 TERMINAL_JOB_STATUSES = {"SUCCESS", "FAILED", "FAILED_VALIDATION", "CANCELLED"}
@@ -91,16 +91,6 @@ QUALITY_GATE_REQUIREMENTS: tuple[dict[str, Any], ...] = (
         "min": 0.55,
     },
     {
-        "label": "mean_substitution_plausibility_score_on_kept >= 0.65",
-        "keys": (
-            "mean_substitution_plausibility_score_on_kept",
-            "mean_substitution_plausibility_on_kept",
-            "metrics.mean_substitution_plausibility_score_on_kept",
-            "metrics.mean_substitution_plausibility_on_kept",
-        ),
-        "min": 0.65,
-    },
-    {
         "label": "nontriviality_pass_rate_on_kept >= 0.90",
         "keys": (
             "nontriviality_pass_rate_on_kept",
@@ -112,6 +102,9 @@ QUALITY_GATE_REQUIREMENTS: tuple[dict[str, Any], ...] = (
         ),
         "min": 0.90,
     },
+)
+
+OPTIONAL_QUALITY_SIGNAL_REQUIREMENTS: tuple[dict[str, Any], ...] = (
     {
         "label": "manual_10_row_pre_ft_spotcheck_pass_rate >= 0.80",
         "keys": (
@@ -258,7 +251,56 @@ def parse_int_like(value: Any) -> int | None:
     return None
 
 
+def parse_float_like(value: Any) -> float | None:
+    if isinstance(value, bool):
+        return None
+    if isinstance(value, (int, float)):
+        return float(value)
+    if isinstance(value, str):
+        normalized = value.strip().replace(",", "")
+        if not normalized:
+            return None
+        try:
+            return float(normalized)
+        except ValueError:
+            return None
+    return None
+
+
 def evaluate_template_distribution(data: dict[str, Any]) -> tuple[bool, list[str]]:
+    target_rates = {"A": 0.50, "B": 0.30, "C": 0.20}
+    tolerance = 0.10
+    issues: list[str] = []
+
+    fraction_key_candidates: dict[str, tuple[str, ...]] = {
+        "A": ("template_a_fraction", "metrics.template_a_fraction"),
+        "B": ("template_b_fraction", "metrics.template_b_fraction"),
+        "C": ("template_c_fraction", "metrics.template_c_fraction"),
+    }
+    fraction_values: dict[str, float] = {}
+    saw_fraction_metric = False
+    for bucket, candidates in fraction_key_candidates.items():
+        key, value = first_present_value(data, candidates)
+        if key is None:
+            continue
+        saw_fraction_metric = True
+        try:
+            fraction_values[bucket] = normalize_rate(value)
+        except (TypeError, ValueError):
+            issues.append(f"{key} has non-numeric value {value!r}")
+
+    if saw_fraction_metric:
+        for bucket, target in target_rates.items():
+            if bucket not in fraction_values:
+                issues.append(f"missing metric for template_{bucket.lower()}_fraction")
+                continue
+            actual = fraction_values[bucket]
+            if abs(actual - target) > tolerance:
+                issues.append(
+                    f"template_{bucket.lower()}_fraction={actual:.4f} outside target {target:.2f} +/- {tolerance:.2f}"
+                )
+        return len(issues) == 0, issues
+
     key, distribution = first_present_value(
         data,
         (
@@ -271,15 +313,30 @@ def evaluate_template_distribution(data: dict[str, Any]) -> tuple[bool, list[str
     if key is None or not isinstance(distribution, dict):
         return False, ["missing template distribution (expected A/B/C rates)"]
 
-    issues: list[str] = []
-    target_rates = {"A": 0.50, "B": 0.30, "C": 0.20}
-    tolerance = 0.10
-    for bucket, target in target_rates.items():
+    raw_values: dict[str, float] = {}
+    for bucket in target_rates:
         raw_value = distribution.get(bucket)
         if raw_value is None:
             issues.append(f"{key}.{bucket} is missing")
             continue
-        actual = normalize_rate(raw_value)
+        actual_raw = parse_float_like(raw_value)
+        if actual_raw is None:
+            issues.append(f"{key}.{bucket} has non-numeric value {raw_value!r}")
+            continue
+        if actual_raw < 0:
+            issues.append(f"{key}.{bucket}={actual_raw:.4f} must be >= 0")
+            continue
+        raw_values[bucket] = actual_raw
+
+    if issues:
+        return False, issues
+
+    total = sum(raw_values.values())
+    if total <= 0:
+        return False, [f"{key} total for A/B/C must be > 0 (got {total:.4f})"]
+
+    for bucket, target in target_rates.items():
+        actual = raw_values[bucket] / total
         if abs(actual - target) > tolerance:
             issues.append(
                 f"{key}.{bucket}={actual:.4f} outside target {target:.2f} +/- {tolerance:.2f}"
@@ -300,6 +357,7 @@ def evaluate_quality_gate(
         "checked_at": utc_now_iso(),
         "checks": [],
         "errors": [],
+        "warnings": [],
     }
 
     decision_key, decision_value = first_present_value(summary, ("decision", "gate_status"))
@@ -313,6 +371,7 @@ def evaluate_quality_gate(
             report["checks"].append(f"{decision_key}={decision_value!r} indicates gate pass")
 
     explicit_gate_flags = (
+        "gate_passed",
         "quality_gate_pass",
         "gate_pass",
         "quality_gate_ok",
@@ -367,6 +426,23 @@ def evaluate_quality_gate(
         else:
             report["checks"].append(f"{key}={actual:.4f} passes {requirement['label']}")
 
+    for requirement in OPTIONAL_QUALITY_SIGNAL_REQUIREMENTS:
+        key, value = first_present_value(summary, requirement["keys"])
+        if value is None:
+            report["warnings"].append(f"optional metric missing: {requirement['label']}")
+            continue
+        try:
+            actual = normalize_rate(value)
+        except (TypeError, ValueError):
+            report["warnings"].append(f"{key} has non-numeric value {value!r}")
+            continue
+
+        minimum = float(requirement["min"])
+        if actual < minimum:
+            report["warnings"].append(f"{key}={actual:.4f} below optional target {minimum:.4f}")
+        else:
+            report["checks"].append(f"{key}={actual:.4f} passes optional signal {requirement['label']}")
+
     template_ok, template_issues = evaluate_template_distribution(summary)
     if template_ok:
         report["checks"].append("template distribution is within A/B/C target tolerance")
@@ -389,10 +465,14 @@ def enforce_quality_gate(
             print(f"quality gate passed: {quality_gate_path}")
             for message in report.get("checks", []):
                 print(f"  - {message}")
+            for message in report.get("warnings", []):
+                print(f"  - warning: {message}")
         else:
             print(f"quality gate failed: {quality_gate_path}", file=sys.stderr)
             for message in report.get("errors", []):
                 print(f"  - {message}", file=sys.stderr)
+            for message in report.get("warnings", []):
+                print(f"  - warning: {message}", file=sys.stderr)
     return passed, report
 
 

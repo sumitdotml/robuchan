@@ -58,7 +58,7 @@ uv run python train/finetune.py upload \
   --valid-path data/valid_filtered.jsonl
 
 uv run python train/finetune.py check-quality-gate \
-  --quality-gate-path artifacts/dataset_audit_summary.json
+  --quality-gate-path artifacts/quality_gate_report.json
 
 uv run python train/finetune.py create-job \
   --model mistral-small-latest \
