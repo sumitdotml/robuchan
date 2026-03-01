@@ -23,7 +23,7 @@ from transformers import AutoModelForCausalLM, AutoTokenizer, BitsAndBytesConfig
 from trl import SFTConfig, SFTTrainer
 
 
-DEFAULT_BASE_MODEL = "mistralai/Ministral-3-3B-Instruct-2512"
+DEFAULT_BASE_MODEL = "mistralai/Ministral-8B-Instruct-2410"
 DEFAULT_DATASET = "sumitdotml/robuchan-data"
 DEFAULT_OUTPUT_DIR = "./output/robuchan-lora"
 DEFAULT_HUB_MODEL_ID = "sumitdotml/robuchan"
@@ -127,10 +127,9 @@ def main() -> int:
         args.base_model,
         quantization_config=quantization_config,
         device_map="auto",
-        dtype=torch.bfloat16 if bf16 else torch.float16,
-        trust_remote_code=True,
+        torch_dtype=torch.bfloat16 if bf16 else torch.float16,
     )
-    tokenizer = AutoTokenizer.from_pretrained(args.base_model, trust_remote_code=True)
+    tokenizer = AutoTokenizer.from_pretrained(args.base_model)
     if tokenizer.pad_token is None:
         tokenizer.pad_token = tokenizer.eos_token
 

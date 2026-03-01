@@ -60,7 +60,7 @@ def cmd_launch(args: argparse.Namespace) -> int:
         "bash",
         "-c",
         "apt-get update -qq && apt-get install -y -qq git > /dev/null"
-        " && pip install -q git+https://github.com/huggingface/transformers trl peft wandb bitsandbytes datasets hf_transfer accelerate"
+        " && pip install -q transformers trl peft wandb bitsandbytes datasets hf_transfer accelerate"
         f" && git clone https://github.com/{github_repo}.git repo && cd repo"
         " && python train/train_trl.py"
         f" --base-model {args.base_model}"
@@ -142,7 +142,7 @@ def parse_args() -> argparse.Namespace:
 
     # Training config
     parser.add_argument(
-        "--base-model", type=str, default="mistralai/Ministral-3-3B-Instruct-2512"
+        "--base-model", type=str, default="mistralai/Ministral-8B-Instruct-2410"
     )
     parser.add_argument("--dataset", type=str, default="sumitdotml/robuchan-data")
     parser.add_argument("--num-train-epochs", type=int, default=3)
