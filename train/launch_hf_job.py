@@ -68,9 +68,11 @@ def cmd_launch(args: argparse.Namespace) -> int:
         f" --num-train-epochs {args.num_train_epochs}"
         f" --learning-rate {args.learning_rate}"
         f" --lora-r {args.lora_r}"
+        f" --max-length {args.max_length}"
         " --push-to-hub"
         f" --hub-model-id {args.hub_model_id}"
-        + (" --use-4bit" if args.use_4bit else ""),
+        + (" --use-4bit" if args.use_4bit else "")
+        + (" --no-eval" if args.no_eval else ""),
     ]
 
     print(f"launching HF Job: flavor={args.flavor}, timeout={args.timeout}")
@@ -151,6 +153,10 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--use-4bit", action="store_true", help="Use QLoRA (4-bit quantization)."
     )
+    parser.add_argument(
+        "--no-eval", action="store_true", help="Skip evaluation (saves VRAM on tight GPUs)."
+    )
+    parser.add_argument("--max-length", type=int, default=1024, help="Max sequence length.")
     parser.add_argument("--hub-model-id", type=str, default="sumitdotml/robuchan")
     parser.add_argument(
         "--wandb-project", type=str, default=os.environ.get("WANDB_PROJECT", "robuchan")

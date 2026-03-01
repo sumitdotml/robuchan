@@ -64,6 +64,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--no-wandb", action="store_true", help="Disable W&B logging.")
     parser.add_argument("--logging-steps", type=int, default=5)
     parser.add_argument("--save-strategy", type=str, default="epoch")
+    parser.add_argument("--no-eval", action="store_true", help="Skip evaluation (saves VRAM).")
+    parser.add_argument("--per-device-eval-batch-size", type=int, default=1)
     parser.add_argument("--seed", type=int, default=42)
     return parser.parse_args()
 
@@ -144,11 +146,13 @@ def main() -> int:
     )
 
     # Training config
+    eval_strategy = "no" if args.no_eval else "epoch"
     training_args = SFTConfig(
         output_dir=args.output_dir,
         num_train_epochs=args.num_train_epochs,
         max_steps=args.max_steps,
         per_device_train_batch_size=args.per_device_train_batch_size,
+        per_device_eval_batch_size=args.per_device_eval_batch_size,
         gradient_accumulation_steps=args.gradient_accumulation_steps,
         learning_rate=args.learning_rate,
         lr_scheduler_type="cosine",
@@ -160,7 +164,7 @@ def main() -> int:
         fp16=fp16,
         logging_steps=args.logging_steps,
         save_strategy=args.save_strategy,
-        eval_strategy="epoch",
+        eval_strategy=eval_strategy,
         report_to=report_to,
         seed=args.seed,
         push_to_hub=args.push_to_hub,

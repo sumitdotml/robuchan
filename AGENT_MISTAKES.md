@@ -417,6 +417,21 @@ Use this exact shape for new entries.
 - evidence:
   - file:train/launch_hf_job.py:63
 
+### MISTAKE-20260301-028
+- id: MISTAKE-20260301-028
+- status: active
+- severity: high
+- scope_tags: [infra, code]
+- pattern: training job with eval_strategy="epoch" OOM'd on A10G (24GB) at epoch boundary because eval pass allocates additional VRAM on top of training state
+- prevention_rule: for memory-constrained GPU training, default to --no-eval or set per_device_eval_batch_size=1 and reduce max_length; eval can be run separately post-training
+- validation_check: verify launch command includes --no-eval flag or --max-length <= 1024 when running 8B QLoRA on 24GB GPUs
+- first_seen: 2026-03-01
+- last_seen: 2026-03-01
+- occurrence_count: 2
+- evidence:
+  - train/train_trl.py:163
+  - train/launch_hf_job.py:73
+
 ### MISTAKE-20260301-026
 - id: MISTAKE-20260301-026
 - status: active
