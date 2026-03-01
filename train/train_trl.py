@@ -127,9 +127,10 @@ def main() -> int:
         args.base_model,
         quantization_config=quantization_config,
         device_map="auto",
-        torch_dtype=torch.bfloat16 if bf16 else torch.float16,
+        dtype=torch.bfloat16 if bf16 else torch.float16,
+        trust_remote_code=True,
     )
-    tokenizer = AutoTokenizer.from_pretrained(args.base_model)
+    tokenizer = AutoTokenizer.from_pretrained(args.base_model, trust_remote_code=True)
     if tokenizer.pad_token is None:
         tokenizer.pad_token = tokenizer.eos_token
 

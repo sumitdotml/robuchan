@@ -60,7 +60,7 @@ def cmd_launch(args: argparse.Namespace) -> int:
         "bash",
         "-c",
         "apt-get update -qq && apt-get install -y -qq git > /dev/null"
-        " && pip install -q transformers trl peft wandb bitsandbytes datasets hf_transfer accelerate"
+        " && pip install -q git+https://github.com/huggingface/transformers trl peft wandb bitsandbytes datasets hf_transfer accelerate"
         f" && git clone https://github.com/{github_repo}.git repo && cd repo"
         " && python train/train_trl.py"
         f" --base-model {args.base_model}"
