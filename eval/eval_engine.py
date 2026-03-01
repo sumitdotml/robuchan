@@ -8,6 +8,7 @@ This module contains reusable parser and run logic.
 from __future__ import annotations
 
 import argparse
+import importlib
 import json
 import os
 import re
@@ -31,6 +32,8 @@ DEFAULT_JUDGE_MODEL = "mistral-large-latest"
 DEFAULT_EVAL_MAX_TOKENS = 1400
 DEFAULT_JUDGE_MAX_TOKENS = 700
 DEFAULT_WANDB_PROJECT = "robuchan"
+DEFAULT_INFERENCE_BACKEND = "mistral_api"
+DEFAULT_HF_BASE_MODEL = "mistralai/Ministral-3-3B-Instruct-2512"
 
 SECTION_HEADERS = (
     "substitution plan",
@@ -55,6 +58,12 @@ class EvalExample:
     messages: ChatMessages
     source_user_text: str
     gold_assistant: str | None
+
+
+@dataclass
+class HFLocalInferenceRuntime:
+    tokenizer: Any
+    model: Any
 
 
 def utc_now_iso() -> str:
@@ -436,8 +445,133 @@ def score_with_judge(
     return parsed, {"prompt_tokens": prompt_tokens, "completion_tokens": completion_tokens}
 
 
+def resolve_hf_auth_token() -> str | None:
+    token = os.environ.get("HF_TOKEN", "").strip()
+    if token:
+        return token
+    fallback = os.environ.get("HUGGING_FACE_HUB_TOKEN", "").strip()
+    return fallback or None
+
+
+def normalize_messages_for_hf(messages: ChatMessages) -> list[dict[str, str]]:
+    normalized: list[dict[str, str]] = []
+    for message in messages:
+        role_value = message.get("role")
+        if role_value not in {"system", "user", "assistant", "tool"}:
+            continue
+        role = str(role_value)
+        text = content_to_text(message.get("content"))
+        if not text:
+            continue
+        normalized.append({"role": role, "content": text})
+    if not normalized:
+        raise ValueError("hf_local inference requires at least one message with text content")
+    if not any(item["role"] == "user" for item in normalized):
+        raise ValueError("hf_local inference requires at least one user message")
+    return normalized
+
+
+def load_hf_local_runtime(model_id: str, hf_base_model: str) -> HFLocalInferenceRuntime:
+    try:
+        torch = importlib.import_module("torch")
+        peft_module = importlib.import_module("peft")
+        transformers_module = importlib.import_module("transformers")
+        AutoPeftModelForCausalLM = getattr(peft_module, "AutoPeftModelForCausalLM")
+        AutoModelForCausalLM = getattr(transformers_module, "AutoModelForCausalLM")
+        AutoTokenizer = getattr(transformers_module, "AutoTokenizer")
+    except ImportError as exc:
+        raise ValueError(
+            "hf_local inference backend requires `torch`, `transformers`, and `peft`."
+        ) from exc
+
+    token = resolve_hf_auth_token()
+    if torch.cuda.is_available():
+        torch_dtype = torch.bfloat16 if torch.cuda.is_bf16_supported() else torch.float16
+        device_map: str | None = "auto"
+    else:
+        torch_dtype = torch.float32
+        device_map = None
+
+    try:
+        tokenizer = AutoTokenizer.from_pretrained(model_id, token=token)
+    except Exception:
+        tokenizer = AutoTokenizer.from_pretrained(hf_base_model, token=token)
+    if tokenizer.pad_token is None and tokenizer.eos_token is not None:
+        tokenizer.pad_token = tokenizer.eos_token
+
+    try:
+        model = AutoPeftModelForCausalLM.from_pretrained(
+            model_id,
+            token=token,
+            torch_dtype=torch_dtype,
+            device_map=device_map,
+        )
+    except Exception:
+        model = AutoModelForCausalLM.from_pretrained(
+            model_id,
+            token=token,
+            torch_dtype=torch_dtype,
+            device_map=device_map,
+        )
+    model.eval()
+
+    return HFLocalInferenceRuntime(tokenizer=tokenizer, model=model)
+
+
+def infer_output_hf_local(
+    runtime: HFLocalInferenceRuntime,
+    messages: ChatMessages,
+    max_tokens: int,
+    temperature: float,
+) -> tuple[str, int, int]:
+    try:
+        torch = importlib.import_module("torch")
+    except ImportError as exc:
+        raise ValueError("hf_local inference backend requires `torch`.") from exc
+
+    hf_messages = normalize_messages_for_hf(messages)
+    if not hasattr(runtime.tokenizer, "apply_chat_template"):
+        raise ValueError("hf_local tokenizer is missing apply_chat_template support")
+
+    prompt = runtime.tokenizer.apply_chat_template(
+        hf_messages,
+        tokenize=False,
+        add_generation_prompt=True,
+    )
+    tokenized_inputs = runtime.tokenizer(prompt, return_tensors="pt")
+    input_ids = tokenized_inputs.get("input_ids")
+    if input_ids is None:
+        raise ValueError("failed to tokenize prompt for hf_local inference")
+
+    model_device = getattr(runtime.model, "device", None)
+    if model_device is not None:
+        tokenized_inputs = {key: value.to(model_device) for key, value in tokenized_inputs.items()}
+
+    generation_kwargs: dict[str, Any] = {
+        "max_new_tokens": max_tokens,
+        "do_sample": temperature > 0.0,
+        "pad_token_id": runtime.tokenizer.pad_token_id,
+    }
+    if runtime.tokenizer.eos_token_id is not None:
+        generation_kwargs["eos_token_id"] = runtime.tokenizer.eos_token_id
+    if temperature > 0.0:
+        generation_kwargs["temperature"] = temperature
+
+    with torch.no_grad():
+        output_ids = runtime.model.generate(**tokenized_inputs, **generation_kwargs)
+    if output_ids.shape[0] == 0:
+        raise ValueError("hf_local inference returned no generations")
+
+    prompt_length = int(input_ids.shape[1])
+    completion_ids = output_ids[0][prompt_length:]
+    output_text = runtime.tokenizer.decode(completion_ids, skip_special_tokens=True).strip()
+    return output_text, prompt_length, int(completion_ids.shape[0])
+
+
 def infer_output(
     client: Mistral | None,
+    hf_runtime: HFLocalInferenceRuntime | None,
+    inference_backend: str,
     model: str,
     messages: ChatMessages,
     max_tokens: int,
@@ -453,6 +587,16 @@ def infer_output(
             "Constraint Check:\n- dry run only."
         )
         return mock, 0, 0
+
+    if inference_backend == "hf_local":
+        if hf_runtime is None:
+            raise ValueError("hf_local inference runtime is not initialized")
+        return infer_output_hf_local(
+            runtime=hf_runtime,
+            messages=messages,
+            max_tokens=max_tokens,
+            temperature=temperature,
+        )
 
     if client is None:
         raise ValueError("client is required for non-dry-run inference")
@@ -646,6 +790,8 @@ def maybe_log_to_wandb(
         config={
             "split_name": args.split_name,
             "model": args.model,
+            "inference_backend": args.inference_backend,
+            "hf_base_model": args.hf_base_model if args.inference_backend == "hf_local" else None,
             "judge_model": None if args.disable_judge else args.judge_model,
             "input": str(args.input),
             "constraints_path": str(args.constraints_path),
@@ -710,6 +856,19 @@ def build_parser(
     parser.add_argument("--input", type=Path, required=True, help="Path to evaluation JSONL split.")
     parser.add_argument("--split-name", type=str, default=default_split_name)
     parser.add_argument("--model", type=str, default=default_model)
+    parser.add_argument(
+        "--inference-backend",
+        type=str,
+        choices=("mistral_api", "hf_local"),
+        default=DEFAULT_INFERENCE_BACKEND,
+        help="Inference backend for generating model outputs.",
+    )
+    parser.add_argument(
+        "--hf-base-model",
+        type=str,
+        default=DEFAULT_HF_BASE_MODEL,
+        help="Tokenizer fallback base model when using --inference-backend hf_local.",
+    )
     parser.add_argument("--constraints-path", type=Path, default=DEFAULT_CONSTRAINTS_PATH)
     parser.add_argument("--output-path", type=Path, default=default_output_path)
     parser.add_argument("--rows-output-path", type=Path, default=default_rows_output_path)
@@ -776,12 +935,22 @@ def run(
     constraints_payload = load_json(args.constraints_path)
     compiled_constraints = compile_constraint_patterns(constraints_payload)
 
-    client: Mistral | None = None
+    inference_client: Mistral | None = None
+    judge_client: Mistral | None = None
+    hf_runtime: HFLocalInferenceRuntime | None = None
     if not args.dry_run:
-        api_key = os.environ.get("MISTRAL_API_KEY", "").strip()
-        if not api_key:
-            raise ValueError("MISTRAL_API_KEY is required unless --dry-run is set")
-        client = Mistral(api_key=api_key)
+        needs_mistral_api = args.inference_backend == "mistral_api" or not args.disable_judge
+        if needs_mistral_api:
+            api_key = os.environ.get("MISTRAL_API_KEY", "").strip()
+            if not api_key:
+                raise ValueError(
+                    "MISTRAL_API_KEY is required when using mistral_api inference or judge scoring"
+                )
+            judge_client = Mistral(api_key=api_key)
+            if args.inference_backend == "mistral_api":
+                inference_client = judge_client
+        if args.inference_backend == "hf_local":
+            hf_runtime = load_hf_local_runtime(model_id=model, hf_base_model=args.hf_base_model)
 
     eval_prompt_tokens = 0
     eval_completion_tokens = 0
@@ -789,11 +958,16 @@ def run(
     judge_completion_tokens = 0
     row_results: list[dict[str, Any]] = []
 
-    print(f"evaluating {len(examples)} examples on model={model} split={args.split_name}")
+    print(
+        f"evaluating {len(examples)} examples on model={model}"
+        f" split={args.split_name} backend={args.inference_backend}"
+    )
     for index, example in enumerate(examples, start=1):
         print(f"[{index}/{len(examples)}] row_id={example.row_id}")
         output_text, prompt_tokens, completion_tokens = infer_output(
-            client=client,
+            client=inference_client,
+            hf_runtime=hf_runtime,
+            inference_backend=args.inference_backend,
             model=model,
             messages=example.messages,
             max_tokens=args.max_tokens,
@@ -813,7 +987,7 @@ def run(
         judge_payload: dict[str, Any] | None = None
         if not args.disable_judge:
             judge_payload, judge_tokens = score_with_judge(
-                client=client,
+                client=judge_client,
                 judge_model=args.judge_model,
                 restrictions=example.restrictions,
                 source_user_text=example.source_user_text,
@@ -857,6 +1031,8 @@ def run(
         "split_name": args.split_name,
         "input_path": str(args.input),
         "model": model,
+        "inference_backend": args.inference_backend,
+        "hf_base_model": args.hf_base_model if args.inference_backend == "hf_local" else None,
         "judge_model": None if args.disable_judge else args.judge_model,
         "constraints_path": str(args.constraints_path),
         "dry_run": bool(args.dry_run),
