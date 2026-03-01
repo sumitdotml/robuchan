@@ -19,7 +19,62 @@ Fine-tune `mistral-small-latest` on synthetic dietary recipe adaptations generat
 ```bash
 uv sync
 cp .env.example .env  # add MISTRAL_API_KEY, WANDB_API_KEY, HF_TOKEN
+set -a; source .env; set +a
 ```
+
+## Credential Quick Check
+
+Verify Mistral key:
+
+```bash
+curl -sS https://api.mistral.ai/v1/models \
+  -H "Authorization: Bearer $MISTRAL_API_KEY"
+```
+
+Verify W&B key:
+
+```bash
+curl -sS https://api.wandb.ai/graphql \
+  -u "api:$WANDB_API_KEY" \
+  -H "Content-Type: application/json" \
+  --data '{"query":"query { viewer { id username } }"}'
+```
+
+## Fine-tune Scripts
+
+Run dataset preflight checks:
+
+```bash
+uv run python train/preflight.py \
+  --train-path data/train_filtered.jsonl \
+  --valid-path data/valid_filtered.jsonl
+```
+
+Upload files and create/start a job:
+
+```bash
+uv run python train/finetune.py upload \
+  --train-path data/train_filtered.jsonl \
+  --valid-path data/valid_filtered.jsonl
+
+uv run python train/finetune.py check-quality-gate \
+  --quality-gate-path artifacts/quality_gate_report.json
+
+uv run python train/finetune.py create-job \
+  --model mistral-small-latest \
+  --training-steps 100 \
+  --learning-rate 1e-4 \
+  --suffix recipe-remix-foodcom-synth \
+  --wandb-project recipe-remix
+
+uv run python train/finetune.py start-job
+uv run python train/finetune.py wait
+uv run python train/finetune.py status --json
+```
+
+Job/file IDs are saved to `artifacts/ft_run_manifest.json`.
+When `WANDB_API_KEY` is set, W&B tracking is enabled automatically. The project is selected from `--wandb-project`, then `WANDB_PROJECT`, then `recipe-remix`.
+W&B project does not need to be created manually beforehand in most cases; if the API key has permission, the run can create the project on first write.
 
 ## Stack
 
