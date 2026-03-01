@@ -102,7 +102,7 @@ Each kept example must include:
 
 - `artifacts/source_pool_summary.json`
 - `artifacts/synthetic_generation_summary.json`
-- `artifacts/dataset_audit_summary.json`
+- `artifacts/quality_gate_report.json`
 - `data/train_filtered.jsonl`
 - `data/valid_filtered.jsonl`
 
@@ -351,8 +351,8 @@ job = client.fine_tuning.jobs.create(
     validation_files=[val_file.id],
     hyperparameters={"training_steps": 100, "learning_rate": 1e-4},
     auto_start=False,
-    integrations=[{"project": "recipe-remix", "api_key": os.environ["WANDB_API_KEY"]}],
-    suffix="recipe-remix-foodcom-synth",
+    integrations=[{"project": "robuchan", "api_key": os.environ["WANDB_API_KEY"]}],
+    suffix="robuchan-foodcom-synth",
 )
 
 client.fine_tuning.jobs.start(job_id=job.id)
@@ -433,7 +433,7 @@ Reliability rule:
 - Run 4 deterministic assistant completeness checks on each candidate before it enters `internal_master` (reject `...`, reject unparseable ingredients, reject unmapped violations, reject banned-term leakage).
 - Audit and retain one best passing candidate per source.
 - Continue until `1200` filtered pairs OR stop condition.
-- Produce `artifacts/synthetic_generation_summary.json` and `artifacts/dataset_audit_summary.json`.
+- Produce `artifacts/synthetic_generation_summary.json` and `artifacts/quality_gate_report.json`.
 - **Hard gate**: do not start fine-tuning until 1200-pair and quality-gate criteria are met.
 - Execution: `uv run python data/prepare.py generate`
   - `sh watch-progress.sh`: prints the current number of records in the generated records every minute.
