@@ -39,6 +39,14 @@ Examples:
     --model ft:... \
     --disable-judge
 
+  # local HF adapter inference (no Mistral inference API call)
+  uv run python eval/evaluate.py \
+    --input data/quick50.jsonl \
+    --split-name quick50 \
+    --model sumitdotml/robuchan \
+    --inference-backend hf_local \
+    --disable-judge
+
   # dry-run smoke test (no inference API calls)
   uv run python eval/evaluate.py \
     --input data/quick50.jsonl \

@@ -23,7 +23,6 @@ from __future__ import annotations
 import argparse
 import os
 import sys
-import time
 
 from dotenv import load_dotenv
 
@@ -59,7 +58,8 @@ def cmd_launch(args: argparse.Namespace) -> int:
     # train/train_trl.py is available inside the container.
     github_repo = args.github_repo
     train_cmd = [
-        "bash", "-c",
+        "bash",
+        "-c",
         f"git clone https://github.com/{github_repo}.git repo && cd repo"
         " && pip install transformers trl peft wandb bitsandbytes datasets hf_transfer accelerate"
         " && python train/train_trl.py"
@@ -74,7 +74,9 @@ def cmd_launch(args: argparse.Namespace) -> int:
     ]
 
     print(f"launching HF Job: flavor={args.flavor}, timeout={args.timeout}")
-    print(f"model={args.base_model}, epochs={args.num_train_epochs}, lr={args.learning_rate}")
+    print(
+        f"model={args.base_model}, epochs={args.num_train_epochs}, lr={args.learning_rate}"
+    )
 
     job = run_job(
         image="pytorch/pytorch:2.6.0-cuda12.4-cudnn9-devel",
@@ -86,10 +88,10 @@ def cmd_launch(args: argparse.Namespace) -> int:
         token=token,
     )
 
-    print(f"\njob launched!")
+    print("\njob launched!")
     print(f"  id:  {job.id}")
     print(f"  url: {job.url}")
-    print(f"\nmonitor with:")
+    print("\nmonitor with:")
     print(f"  uv run python train/launch_hf_job.py --status {job.id}")
     print(f"  uv run python train/launch_hf_job.py --logs {job.id}")
     return 0
@@ -128,7 +130,9 @@ def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
 
     # Job management
-    parser.add_argument("--status", type=str, metavar="JOB_ID", help="Check job status.")
+    parser.add_argument(
+        "--status", type=str, metavar="JOB_ID", help="Check job status."
+    )
     parser.add_argument("--logs", type=str, metavar="JOB_ID", help="Stream job logs.")
     parser.add_argument("--cancel", type=str, metavar="JOB_ID", help="Cancel a job.")
 
@@ -137,15 +141,26 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--timeout", type=str, default="2h")
 
     # Training config
-    parser.add_argument("--base-model", type=str, default="mistralai/Ministral-3-3B-Instruct-2512")
+    parser.add_argument(
+        "--base-model", type=str, default="mistralai/Ministral-3-3B-Instruct-2512"
+    )
     parser.add_argument("--dataset", type=str, default="sumitdotml/robuchan-data")
     parser.add_argument("--num-train-epochs", type=int, default=3)
     parser.add_argument("--learning-rate", type=float, default=2e-4)
     parser.add_argument("--lora-r", type=int, default=16)
-    parser.add_argument("--use-4bit", action="store_true", help="Use QLoRA (4-bit quantization).")
+    parser.add_argument(
+        "--use-4bit", action="store_true", help="Use QLoRA (4-bit quantization)."
+    )
     parser.add_argument("--hub-model-id", type=str, default="sumitdotml/robuchan")
-    parser.add_argument("--wandb-project", type=str, default=os.environ.get("WANDB_PROJECT", "robuchan"))
-    parser.add_argument("--github-repo", type=str, default="sumitdotml/robuchan", help="GitHub repo to clone into the container.")
+    parser.add_argument(
+        "--wandb-project", type=str, default=os.environ.get("WANDB_PROJECT", "robuchan")
+    )
+    parser.add_argument(
+        "--github-repo",
+        type=str,
+        default="sumitdotml/robuchan",
+        help="GitHub repo to clone into the container.",
+    )
 
     return parser.parse_args()
 

@@ -29,6 +29,10 @@ export WANDB_API_KEY=...          # optional, for training loss curves
 export WANDB_PROJECT=robuchan
 export MISTRAL_API_KEY=...        # still needed for eval (judge model)
 ```
+4. Install local eval inference deps (for HF adapter evaluation path):
+```bash
+uv add torch transformers peft accelerate
+```
 
 ## 2. Preflight Validation
 
@@ -109,11 +113,26 @@ print(files)
 
 ## 7. Run Evaluation
 
-**Known gap**: The current eval engine (`eval/eval_engine.py`) calls the Mistral Chat API for inference. It cannot load HF-hosted LoRA adapters directly. This needs an eval engine update to support HF adapter inference before Step 7 works end-to-end.
+Run local inference against the HF adapter:
 
-For now, evaluation options:
-- Adapt `eval/evaluate.py` to load the HF adapter locally via `transformers` + `peft` (TODO)
-- Use the adapter for manual spot-checks via the demo CLI (`demo/demo.py`) once updated
+```bash
+uv run python eval/evaluate.py \
+  --input data/quick50.jsonl \
+  --split-name quick50 \
+  --model sumitdotml/robuchan \
+  --inference-backend hf_local \
+  --disable-judge
+```
+
+With judge scoring enabled (requires `MISTRAL_API_KEY`):
+
+```bash
+uv run python eval/evaluate.py \
+  --input data/quick50.jsonl \
+  --split-name quick50 \
+  --model sumitdotml/robuchan \
+  --inference-backend hf_local
+```
 
 ## Cost Estimate
 
