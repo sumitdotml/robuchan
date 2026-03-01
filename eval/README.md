@@ -110,8 +110,8 @@ Pairwise baseline-vs-candidate comparator on row-level outputs:
 The pipeline begins with eval split files generated outside this folder by dataset/export scripts.
 
 Expected inputs:
-- `data/quick50.jsonl`
-- `data/final150.jsonl`
+- `eval/quick50.jsonl`
+- `eval/final150.jsonl`
 - `eval/hard_cases.jsonl`
 
 Inference/judge env requirements:
@@ -144,7 +144,7 @@ Quick gate:
 
 ```bash
 uv run python eval/baseline.py \
-  --input data/quick50.jsonl \
+  --input eval/quick50.jsonl \
   --split-name quick50
 ```
 
@@ -152,7 +152,7 @@ Final gate:
 
 ```bash
 uv run python eval/baseline.py \
-  --input data/final150.jsonl \
+  --input eval/final150.jsonl \
   --split-name final150
 ```
 
@@ -172,7 +172,7 @@ Explicit model id:
 
 ```bash
 uv run python eval/evaluate.py \
-  --input data/final150.jsonl \
+  --input eval/final150.jsonl \
   --split-name final150 \
   --model ft:your-model-id
 ```
@@ -181,7 +181,7 @@ Manifest fallback (reads `artifacts/ft_run_manifest.json` -> `job.fine_tuned_mod
 
 ```bash
 uv run python eval/evaluate.py \
-  --input data/final150.jsonl \
+  --input eval/final150.jsonl \
   --split-name final150
 ```
 
@@ -238,7 +238,7 @@ Deterministic-only run (no judge call):
 
 ```bash
 uv run python eval/evaluate.py \
-  --input data/quick50.jsonl \
+  --input eval/quick50.jsonl \
   --split-name quick50 \
   --model ft:your-model-id \
   --disable-judge
@@ -248,7 +248,7 @@ Dry run (no inference API call):
 
 ```bash
 uv run python eval/evaluate.py \
-  --input data/quick50.jsonl \
+  --input eval/quick50.jsonl \
   --split-name quick50 \
   --model mistral-small-latest \
   --disable-judge \
@@ -259,7 +259,7 @@ Limit rows while debugging:
 
 ```bash
 uv run python eval/evaluate.py \
-  --input data/final150.jsonl \
+  --input eval/final150.jsonl \
   --split-name final150 \
   --model ft:your-model-id \
   --limit 5
@@ -271,7 +271,7 @@ W&B logging auto-enables whenever `WANDB_API_KEY` is set.
 
 ```bash
 uv run python eval/evaluate.py \
-  --input data/final150.jsonl \
+  --input eval/final150.jsonl \
   --split-name final150 \
   --model ft:your-model-id \
   --wandb-project robuchan

@@ -8,12 +8,12 @@ Input split creation:
 Examples:
   # baseline quick gate
   uv run python eval/baseline.py \
-    --input data/quick50.jsonl \
+    --input eval/quick50.jsonl \
     --split-name quick50
 
   # baseline final freeze
   uv run python eval/baseline.py \
-    --input data/final150.jsonl \
+    --input eval/final150.jsonl \
     --split-name final150
 
   # baseline hard-case bank
@@ -23,13 +23,13 @@ Examples:
 
   # baseline deterministic-only
   uv run python eval/baseline.py \
-    --input data/quick50.jsonl \
+    --input eval/quick50.jsonl \
     --split-name quick50 \
     --disable-judge
 
   # baseline dry-run smoke test
   uv run python eval/baseline.py \
-    --input data/quick50.jsonl \
+    --input eval/quick50.jsonl \
     --split-name quick50 \
     --disable-judge \
     --dry-run

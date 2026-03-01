@@ -76,7 +76,7 @@ Dominant drop reasons:
 ## TODOs: Eval Input Handoff
 
 1. In dataset prep/export, generate and store eval-ready JSONL splits:
-`data/quick50.jsonl`, `data/final150.jsonl`, `eval/hard_cases.jsonl`.
+`eval/quick50.jsonl`, `eval/final150.jsonl`, `eval/hard_cases.jsonl`.
 2. Treat these files as required inputs to the eval pipeline (`eval/baseline.py` and `eval/evaluate.py`); eval scripts do not create splits.
 3. Add a handoff check in dataset prep completion criteria: do not mark dataset prep complete until all three JSONL files exist and are readable.
 
